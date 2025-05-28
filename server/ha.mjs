@@ -3,6 +3,7 @@ import axios from 'axios';
 
 const haUrl = process.env.HOME_ASSISTANT_URL;
 const token = process.env.HOME_ASSISTANT_ACCESS_TOKEN;
+const ttsPrefix = process.env.TTS_PREFIX || null;
 const audioHost = process.env.AUDIO_HOST || `http://${(process.env.HOST || 'localhost')}:${(process.env.PORT || 3001)}`;
 
 export const postAudio = (wssId, entities) => {
@@ -33,7 +34,7 @@ export const postAudio = (wssId, entities) => {
 export const postAlexaTTS = (message, entities) => {
     return Promise.all(entities.map((entity) => {
         const payload = {
-            message,
+            message: [(entity.tts_prefix || ttsPrefix || ''), message].join(' ').trim(),
             data: {
                 type: entity.data?.type ?? 'tts', // or 'announce' (announce makes it chime and say it)
                 method: entity.data?.method ?? 'all' // optional: 'all' or 'speak' depending on behavior
@@ -62,7 +63,7 @@ export const postTTS = (message, entities) => {
         let payload = {
             entity_id: 'tts.piper',
             media_player_entity_id: entity.entity_id,
-            message,
+            message: [(entity.tts_prefix ?? ttsPrefix ?? ''), message].join(' ').trim(),
             cache: false
         };
 

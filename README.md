@@ -14,6 +14,7 @@ An intercom and announcement system for use with Home Assistant.
 ```yaml
 - type: custom:intercom-widget
     name: Audio Intercom
+    ttsPrefix: "Incoming Notification:"
     hideStatus: false
     hideTranscription: false
     target:
@@ -80,6 +81,7 @@ An intercom and announcement system for use with Home Assistant.
 - WHISPER_PORT=10300
 - HOME_ASSISTANT_URL=https://my-ha-instance-url:8123
 - HOME_ASSISTANT_ACCESS_TOKEN= ...
+- TTS_PREFIX=Incoming Notification:
 
 # Nginx config example
 
