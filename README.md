@@ -12,6 +12,8 @@ An intercom and announcement system for use with Home Assistant.
 ```yaml
 - type: custom:intercom-widget
     name: Audio Intercom
+    hideStatus: false
+    hideTranscription: false
     target:
         - entity_id: media_player.esp32_media_player
           type: audio
@@ -58,6 +60,7 @@ An intercom and announcement system for use with Home Assistant.
 - Docker
 - HTTPS connection to Home Assistant (for micorphone use)
 - Faster-Whisper for STT
+- an HTTP proxy, like nginx
 
 ## Installation
 
@@ -75,3 +78,52 @@ An intercom and announcement system for use with Home Assistant.
 - WHISPER_PORT=10300
 - HOME_ASSISTANT_URL=https://my-ha-instance-url:8123
 - HOME_ASSISTANT_ACCESS_TOKEN= ...
+
+# Nginx config example
+
+- The widget in Home Assistant makes web-socket requests to /api/intercom
+- You must proxy these requests to the host and port of your ha-intercom docker container
+- This is an Nginx example of specifying a loca
+
+
+
+```
+
+upstream home_assistant {
+    server                 192.168.1.X:8123;
+}
+
+upstream intercom_proxy {
+    server                 192.168.1.X:3001;
+}
+
+
+server {
+    listen        8123 ssl;
+    ssl_certificate         /etc/ssl/private/my-domain.fullchain.pem;
+    ssl_certificate_key     /etc/ssl/private/my-domain.key.pem;
+    ssl_trusted_certificate /etc/ssl/private/my-domain.chain.pem;
+
+    location /api/intercom {
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection $connection_upgrade;
+            proxy_pass http://intercom_proxy/api/intercom;
+    }
+
+    location / {
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_pass http://home_assistant;
+    }
+
+}     
+
+```
+
+# Usage
+
+ ## Home Assistant
+ - To add the micorphone widget to your Home Assistant for use in dashboards, you must copy the intercom-widget.js file from this repo in /public/intercom-widget.js to your Home Assistant /www directory.
+ - Once copied to the www directory in Home Assistant, add a JavaScript module resource in Dashboards > Resources (/config/lovelace/resources) which points to this file. You can now use this widget via the YAML examples above.
