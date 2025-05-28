@@ -2,6 +2,8 @@
 
 An intercom and announcement system for use with Home Assistant.
 
+![Inercom Features](img/all-features.png)
+
 ## Features
 
 - Low latency audio intercom for supported media_player types
