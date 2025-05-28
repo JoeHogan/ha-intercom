@@ -85,9 +85,7 @@ An intercom and announcement system for use with Home Assistant.
 
 - The widget in Home Assistant makes web-socket requests to /api/intercom
 - You must proxy these requests to the host and port of your ha-intercom docker container
-- This is an Nginx example of specifying a loca
-
-
+- This is an Nginx example which modifies an existing Home Assistant SSL proxy:
 
 ```
 
