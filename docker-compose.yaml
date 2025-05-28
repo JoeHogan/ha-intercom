@@ -1,5 +1,5 @@
 services:
-  local_llm:
+  ha_intercom:
     build: .
     container_name: ha-intercom
     restart: always
