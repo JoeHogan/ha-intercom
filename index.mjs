@@ -189,7 +189,7 @@ wss.on('connection', ws => {
 
 // Only upgrade if request is for the correct path
 server.on('upgrade', (request, socket, head) => {
-  if (request.url === '/api/intercom') {
+  if (request.url.startsWith('/api/intercom')) {
     wss.handleUpgrade(request, socket, head, (ws) => {
       wss.emit('connection', ws, request);
     });
