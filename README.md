@@ -11,6 +11,13 @@ An intercom and announcement system for use with Home Assistant.
 
 ## Container Installation
 
+### Docker Images
+https://hub.docker.com/repository/docker/josephhogan/ha-intercom/general
+
+```
+image: josephhogan/ha-intercom:latest
+```
+
 ## Home Assistant Installation (via HACS)
 
 1. Go to HACS → Integrations → ⋮ → Custom repositories.
