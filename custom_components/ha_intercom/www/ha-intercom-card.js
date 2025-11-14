@@ -1,6 +1,7 @@
-import { LitElement, html, css } from 'https://unpkg.com/lit@latest?module';
+import { LitElement, html, css } from "https://unpkg.com/lit-element@4.1.1/lit-element.js?module";
+import { getAccessToken } from "./refreshToken.js";
 
-export class IntercomWidget extends LitElement {
+export class HaIntercomCard extends LitElement {
   static styles = css`
     :host {
       display: block;
@@ -167,12 +168,13 @@ export class IntercomWidget extends LitElement {
     this.latestTranscription = message;
   }
 
-  connectWebSocket() {
+  async connectWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
     const host = window.location.host;
 
     console.log('Attempting to connect...');
-    this.ws = new WebSocket(`${protocol}://${host}/api/intercom`);
+    let access_token = await getAccessToken();
+    this.ws = new WebSocket(`${protocol}://${host}/api/ha_intercom/ws?token=${access_token}`);
     this.ws.binaryType = 'arraybuffer';
 
     this.connectTimer = setTimeout(() => {
@@ -286,4 +288,4 @@ export class IntercomWidget extends LitElement {
   }
 }
 
-customElements.define('intercom-widget', IntercomWidget);
+customElements.define('ha-intercom-card', HaIntercomCard);

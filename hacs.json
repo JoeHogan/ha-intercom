@@ -1,0 +1,8 @@
+{
+  "name": "HA Intercom",
+  "content_in_root": false,
+  "render_readme": true,
+  "domain": "ha_intercom",
+  "country": "US",
+  "homeassistant": "2024.6.0"
+}
