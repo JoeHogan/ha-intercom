@@ -41,10 +41,9 @@ async def async_register_proxy(hass: HomeAssistant, entry: ConfigEntry):
         # --- 2. Build backend WebSocket URL ---
         entry_data = hass.data[DOMAIN].get(entry.entry_id)
         base_url = entry_data[CONF_SERVICE_URL].rstrip("/")
-        tail = request.match_info.get("tail", "")
-        target_url = f"{base_url}/api/ha_intercom/ws/{tail}".rstrip("/")
+        target_url = f"{base_url}/api/ha_intercom/ws"
 
-        # --- 3. Create outgoing WebSocketResponse to the client ---
+        # --- 3. Outgoing websocket to client ---
         ws_client = web.WebSocketResponse()
         await ws_client.prepare(request)
 
@@ -53,42 +52,76 @@ async def async_register_proxy(hass: HomeAssistant, entry: ConfigEntry):
             async with ClientSession() as session:
                 try:
                     ws_server = await session.ws_connect(target_url)
-                except Exception as e:
-                    # Backend unreachable → Fail gracefully
+                except Exception:
                     await ws_client.close(
                         code=1011, message=b"Backend WebSocket connection failed"
                     )
                     return ws_client
 
+                #
+                # --- PATCH 1: Proper bidirectional forwarding including ping/pong ---
+                #
                 async def client_to_server():
-                    async for msg in ws_client:
-                        if msg.type == web.WSMsgType.TEXT:
-                            await ws_server.send_str(msg.data)
-                        elif msg.type == web.WSMsgType.BINARY:
-                            await ws_server.send_bytes(msg.data)
-                        elif msg.type == web.WSMsgType.CLOSE:
-                            await ws_server.close()
+                    try:
+                        async for msg in ws_client:
+                            if msg.type == web.WSMsgType.TEXT:
+                                await ws_server.send_str(msg.data)
+                            elif msg.type == web.WSMsgType.BINARY:
+                                await ws_server.send_bytes(msg.data)
+                            elif msg.type == web.WSMsgType.PING:
+                                await ws_server.ping()
+                            elif msg.type == web.WSMsgType.PONG:
+                                await ws_server.pong()
+                            elif msg.type == web.WSMsgType.CLOSE:
+                                await ws_server.close()
+                    except Exception:
+                        # websocket loop ends
+                        pass
 
                 async def server_to_client():
-                    async for msg in ws_server:
-                        if msg.type == web.WSMsgType.TEXT:
-                            await ws_client.send_str(msg.data)
-                        elif msg.type == web.WSMsgType.BINARY:
-                            await ws_client.send_bytes(msg.data)
-                        elif msg.type == web.WSMsgType.CLOSE:
-                            await ws_client.close()
+                    try:
+                        async for msg in ws_server:
+                            if msg.type == web.WSMsgType.TEXT:
+                                await ws_client.send_str(msg.data)
+                            elif msg.type == web.WSMsgType.BINARY:
+                                await ws_client.send_bytes(msg.data)
+                            elif msg.type == web.WSMsgType.PING:
+                                await ws_client.ping()
+                            elif msg.type == web.WSMsgType.PONG:
+                                await ws_client.pong()
+                            elif msg.type == web.WSMsgType.CLOSE:
+                                await ws_client.close()
+                    except Exception:
+                        # backend closed or error
+                        pass
 
-                # Run both directions until one ends
-                await asyncio.wait(
-                    [
-                        asyncio.create_task(client_to_server()),
-                        asyncio.create_task(server_to_client()),
-                    ],
+                #
+                # --- PATCH 2: Run both tasks safely ---
+                #
+                task_client = asyncio.create_task(client_to_server())
+                task_server = asyncio.create_task(server_to_client())
+
+                done, pending = await asyncio.wait(
+                    [task_client, task_server],
                     return_when=asyncio.FIRST_COMPLETED,
                 )
 
-                await ws_client.close()
-                await ws_server.close()
+                # Cleanup other tasks
+                for task in pending:
+                    task.cancel()
+
+                #
+                # --- PATCH 3: Graceful close without server crash ---
+                #
+                try:
+                    await ws_server.close()
+                except Exception:
+                    pass
+
+                try:
+                    await ws_client.close()
+                except Exception:
+                    pass
 
                 return ws_client
 
@@ -96,6 +129,7 @@ async def async_register_proxy(hass: HomeAssistant, entry: ConfigEntry):
             # Extra failsafe
             await ws_client.close(code=1011, message=b"Unhandled WebSocket proxy error")
             return ws_client
+
 
     # ----------------------------
     # MAIN PROXY HANDLER
