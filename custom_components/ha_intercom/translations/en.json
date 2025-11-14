@@ -1,0 +1,19 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configure HA Intercom",
+        "description": "Enter the full url and port of your HA Intercom instance.",
+        "data": {
+          "service_url": "Service URL (e.g. http://192.168.1.10:3001)"
+        }
+      }
+    },
+    "error": {
+      "invalid_url": "Please enter a valid URL starting with http:// or https://"
+    },
+    "abort": {
+      "already_configured": "This service is already configured."
+    }
+  }
+}

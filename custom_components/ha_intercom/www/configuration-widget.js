@@ -38,7 +38,7 @@ class ConfigurationWidget extends LitElement {
 
   render() {
     return html`
-      <intercom-widget .config=${this.config}></intercom-widget>
+      <ha-intercom-card .config=${this.config}></ha-intercom-card>
     `;
   }
 }

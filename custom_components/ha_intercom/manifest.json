@@ -1,0 +1,15 @@
+{
+    "domain": "ha_intercom",
+    "name": "HA Intercom",
+    "version": "1.0.0",
+    "documentation": "https://github.com/JoeHogan/ha-intercom",
+    "issue_tracker": "https://github.com/JoeHogan/ha-intercom/issues",
+    "requirements": [],
+    "config_flow": true,
+    "dependencies": [
+        "http",
+        "lovelace"
+    ],
+    "codeowners": ["@JoeHogan"],
+    "icon": "mdi:video"
+}

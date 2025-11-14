@@ -17,7 +17,7 @@ const port = process.env.PORT || 3001;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-app.use(express.static('public'));
+app.use(express.static('custom_components/ha_intercom/www'));
 
 const wss = new WebSocketServer({ noServer: true });
 
@@ -189,7 +189,7 @@ wss.on('connection', ws => {
 
 // Only upgrade if request is for the correct path
 server.on('upgrade', (request, socket, head) => {
-  if (request.url.startsWith('/api/intercom')) {
+  if (request.url.startsWith('/api/ha_intercom/ws')) {
     wss.handleUpgrade(request, socket, head, (ws) => {
       wss.emit('connection', ws, request);
     });
