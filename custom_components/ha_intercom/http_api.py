@@ -33,30 +33,38 @@ async def async_register_proxy(hass: HomeAssistant, entry: ConfigEntry):
     async def websocket_proxy(request: web.Request):
         """Proxy WebSocket connections to the backend MediaMTX service."""
 
-        # --- 1. Validate auth first ---
+        # --- 1. Validate auth ---
         user = await authenticate(request)
         if user is None:
             return web.Response(status=401, text="Unauthorized")
 
-        # --- 2. Build backend WebSocket URL ---
+        # --- 2. Build backend WebSocket URL with querystring preserved ---
         entry_data = hass.data[DOMAIN].get(entry.entry_id)
         base_url = entry_data[CONF_SERVICE_URL].rstrip("/")
-        tail = request.match_info.get("tail", "")
-        target_url = f"{base_url}/api/ha_intercom/ws/{tail}".rstrip("/")
 
-        # --- 3. Create outgoing WebSocketResponse to the client ---
+        # convert http(s) to ws(s)
+        if base_url.startswith("https://"):
+            ws_base_url = base_url.replace("https://", "wss://", 1)
+        elif base_url.startswith("http://"):
+            ws_base_url = base_url.replace("http://", "ws://", 1)
+        else:
+            ws_base_url = base_url  # assume user entered ws:// or wss://
+
+        target_url = f"{ws_base_url}/api/ha_intercom/ws"
+
+        # --- 3. Prepare outgoing WebSocket to client ---
         ws_client = web.WebSocketResponse()
         await ws_client.prepare(request)
 
-        # --- 4. Try connecting to backend WebSocket ---
+        # --- 4. Connect to backend WebSocket ---
         try:
             async with ClientSession() as session:
                 try:
                     ws_server = await session.ws_connect(target_url)
-                except Exception as e:
-                    # Backend unreachable → Fail gracefully
+                except Exception:
                     await ws_client.close(
-                        code=1011, message=b"Backend WebSocket connection failed"
+                        code=1011,
+                        message=b"Backend WebSocket connection failed",
                     )
                     return ws_client
 
@@ -66,8 +74,9 @@ async def async_register_proxy(hass: HomeAssistant, entry: ConfigEntry):
                             await ws_server.send_str(msg.data)
                         elif msg.type == web.WSMsgType.BINARY:
                             await ws_server.send_bytes(msg.data)
-                        elif msg.type == web.WSMsgType.CLOSE:
+                        elif msg.type in (web.WSMsgType.CLOSE, web.WSMsgType.ERROR):
                             await ws_server.close()
+                            break
 
                 async def server_to_client():
                     async for msg in ws_server:
@@ -75,26 +84,29 @@ async def async_register_proxy(hass: HomeAssistant, entry: ConfigEntry):
                             await ws_client.send_str(msg.data)
                         elif msg.type == web.WSMsgType.BINARY:
                             await ws_client.send_bytes(msg.data)
-                        elif msg.type == web.WSMsgType.CLOSE:
+                        elif msg.type in (web.WSMsgType.CLOSE, web.WSMsgType.ERROR):
                             await ws_client.close()
+                            break
 
-                # Run both directions until one ends
-                await asyncio.wait(
-                    [
-                        asyncio.create_task(client_to_server()),
-                        asyncio.create_task(server_to_client()),
-                    ],
-                    return_when=asyncio.FIRST_COMPLETED,
+                # --- 5. Proxy in both directions until one ends ---
+                await asyncio.gather(
+                    client_to_server(),
+                    server_to_client(),
                 )
 
-                await ws_client.close()
-                await ws_server.close()
+                # --- 6. Graceful cleanup ---
+                if not ws_client.closed:
+                    await ws_client.close()
+                if not ws_server.closed:
+                    await ws_server.close()
 
                 return ws_client
 
         except Exception:
-            # Extra failsafe
-            await ws_client.close(code=1011, message=b"Unhandled WebSocket proxy error")
+            await ws_client.close(
+                code=1011,
+                message=b"Unhandled WebSocket proxy error",
+            )
             return ws_client
 
     # ----------------------------
