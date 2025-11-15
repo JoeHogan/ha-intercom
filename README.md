@@ -9,6 +9,10 @@ An intercom and announcement system for use with Home Assistant.
 - Low latency audio intercom for supported media_player types
 - Announcements via TTS to supported media_player types (ie: Alexa)
 
+## Notes
+
+This is a work in progress. I'm porting this over from a standalone container solution to a Home Assistant Integration. As a result, there are several environment variables used for the Docker container that are likely unnecessary and can be inferred from context. While I'm sorting that, use as documented.
+
 ## Container Installation
 
 ### Docker Images
@@ -17,6 +21,8 @@ https://hub.docker.com/repository/docker/josephhogan/ha-intercom/general
 ```
 image: josephhogan/ha-intercom:latest
 ```
+
+Please see below for required environment variables for the Docker container.
 
 ## Home Assistant Installation (via HACS)
 
