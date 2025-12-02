@@ -5,8 +5,10 @@ const SAMPLE_RATE = 16000;
 const SAMPLE_WIDTH = 2;
 const CHANNELS = 1;
 
-const whisperHost = process.env.WHISPER_HOST || 'localhost';
-const whisperPort = process.env.WHISPER_PORT || 10300;
+const whisperUrl = (process.env.WHISPER_HOST || 'localhost').split('://')[(process.env.WHISPER_HOST || 'localhost').split('://').length -1].split(':');
+
+const whisperHost = whisperUrl[0];
+const whisperPort = whisperUrl.length > 1 ? whisperUrl[1] : 10300;
 
 /**
  * Builds and sends a complete Wyoming message (header + optional data + optional payload)

@@ -22,6 +22,7 @@ class ClientSession {
         this.wssId = uuidv4();
         this.haUrl = config.haUrl;
         this.haToken = config.haToken;
+        this.audioHost = config.audioHost;
     }
 }
 
@@ -31,7 +32,7 @@ const wss = new WebSocketServer({ noServer: true });
 
 const audioStreams = {};
 
-wss.on('connection', ws => {
+wss.on('connection', (ws, request) => {
     console.log('WebSocket client connected');
 
     let ffmpegAudio;
@@ -39,6 +40,10 @@ wss.on('connection', ws => {
     let audioEntities;
     let ttsEntities;
     let alexaEntities;
+    const url = new URL(request.url, `http://localhost:${port}`);
+    const haUrl = url.searchParams.get('haUrl');
+    const haToken = url.searchParams.get('haToken');
+    const audioHost = url.searchParams.get('audioHost');
 
     const getEntitesByType = (targets, type) => {
         type = (type || '').toLowerCase();
@@ -129,11 +134,11 @@ wss.on('connection', ws => {
                     if (message) {
                         if(ttsEntities.length) {
                             console.log(`${client.wssId}: Sending TTS to ${ttsEntities.map(({entity_id}) => entity_id).join(', ')}`);
-                            // postTTS(client, message, ttsEntities);
+                            postTTS(client, message, ttsEntities);
                         }
                         if(alexaEntities.length) {
                             console.log(`${client.wssId}: Sending ALEXA TTS to ${alexaEntities.map(({entity_id}) => entity_id).join(', ')}`);
-                            // postAlexaTTS(client, message, alexaEntities);
+                            postAlexaTTS(client, message, alexaEntities);
                         }
                     }
                 })
@@ -172,7 +177,7 @@ wss.on('connection', ws => {
       
         if(header.type === 'start') {
             setPlayers(header);
-            const client = new ClientSession();
+            const client = new ClientSession({haUrl, haToken, audioHost});
             ffmpegAudio = startAudio(client);
             ffmpegSTT = startSTT(client);
         }
