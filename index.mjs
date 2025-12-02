@@ -17,13 +17,22 @@ const port = process.env.PORT || 3001;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+class ClientSession {
+    constructor(config = {}) {
+        this.wssId = uuidv4();
+        this.haUrl = config.haUrl;
+        this.haToken = config.haToken;
+        this.audioHost = config.audioHost;
+    }
+}
+
 app.use(express.static('custom_components/ha_intercom/www'));
 
 const wss = new WebSocketServer({ noServer: true });
 
 const audioStreams = {};
 
-wss.on('connection', ws => {
+wss.on('connection', (ws, request) => {
     console.log('WebSocket client connected');
 
     let ffmpegAudio;
@@ -31,6 +40,10 @@ wss.on('connection', ws => {
     let audioEntities;
     let ttsEntities;
     let alexaEntities;
+    const url = new URL(request.url, `http://localhost:${port}`);
+    const haUrl = url.searchParams.get('haUrl');
+    const haToken = url.searchParams.get('haToken');
+    const audioHost = url.searchParams.get('audioHost');
 
     const getEntitesByType = (targets, type) => {
         type = (type || '').toLowerCase();
@@ -51,18 +64,18 @@ wss.on('connection', ws => {
         alexaEntities = getEntitesByType(targets, 'alexa');
     };
 
-    const startAudio = (wssId) => {
+    const startAudio = (client) => {
 
         if(!audioEntities.length) {
             return null;
         }
 
         const audioStream = new PassThrough();
-        audioStreams[wssId] = audioStream;
+        audioStreams[client.wssId] = audioStream;
 
-        console.log(`${wssId}: Sending AUDIO to ${audioEntities.map(({entity_id}) => entity_id).join(', ')}`);
+        console.log(`${client.wssId}: Sending AUDIO to ${audioEntities.map(({entity_id}) => entity_id).join(', ')}`);
 
-        postAudio(wssId, audioEntities);
+        postAudio(client, audioEntities);
 
         const instance = spawn('ffmpeg', [
             '-f', 'webm',
@@ -85,13 +98,13 @@ wss.on('connection', ws => {
         instance.on('close', code => {
             console.log('ffmpeg exited with code', code);
             audioStream.end();
-            delete audioStreams[wssId];
+            delete audioStreams[client.wssId];
         });
 
         return instance;
     };
 
-    const startSTT = (wssId) => {
+    const startSTT = (client) => {
 
         if((ttsEntities.length + alexaEntities.length) === 0) {
             return null;
@@ -120,12 +133,12 @@ wss.on('connection', ws => {
                     ws.send(message || '[no text]');
                     if (message) {
                         if(ttsEntities.length) {
-                            console.log(`${wssId}: Sending TTS to ${ttsEntities.map(({entity_id}) => entity_id).join(', ')}`);
-                            postTTS(message, ttsEntities);
+                            console.log(`${client.wssId}: Sending TTS to ${ttsEntities.map(({entity_id}) => entity_id).join(', ')}`);
+                            postTTS(client, message, ttsEntities);
                         }
                         if(alexaEntities.length) {
-                            console.log(`${wssId}: Sending ALEXA TTS to ${alexaEntities.map(({entity_id}) => entity_id).join(', ')}`);
-                            postAlexaTTS(message, alexaEntities);
+                            console.log(`${client.wssId}: Sending ALEXA TTS to ${alexaEntities.map(({entity_id}) => entity_id).join(', ')}`);
+                            postAlexaTTS(client, message, alexaEntities);
                         }
                     }
                 })
@@ -164,9 +177,9 @@ wss.on('connection', ws => {
       
         if(header.type === 'start') {
             setPlayers(header);
-            const wssId = uuidv4();
-            ffmpegAudio = startAudio(wssId);
-            ffmpegSTT = startSTT(wssId);
+            const client = new ClientSession({haUrl, haToken, audioHost});
+            ffmpegAudio = startAudio(client);
+            ffmpegSTT = startSTT(client);
         }
         if(header.type === 'stop') {
             stop();

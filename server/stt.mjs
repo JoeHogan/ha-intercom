@@ -5,8 +5,10 @@ const SAMPLE_RATE = 16000;
 const SAMPLE_WIDTH = 2;
 const CHANNELS = 1;
 
-const whisperHost = process.env.WHISPER_HOST || 'localhost';
-const whisperPort = process.env.WHISPER_PORT || 10300;
+const whisperUrl = (process.env.WHISPER_HOST || 'localhost').split('://')[(process.env.WHISPER_HOST || 'localhost').split('://').length -1].split(':');
+
+const whisperHost = whisperUrl[0];
+const whisperPort = whisperUrl.length > 1 ? whisperUrl[1] : 10300;
 
 /**
  * Builds and sends a complete Wyoming message (header + optional data + optional payload)
@@ -29,6 +31,9 @@ function sendWyomingMessage(socket, type, data = {}, payload = null) {
 }
 
 export async function postSTT(wavBuffer) {
+  let dataLength = 0;
+  let dataTotal = 0;
+  let allTranscriptions = [];
   return new Promise((resolve, reject) => {
     const socket = new net.Socket();
     let resolved = false;
@@ -72,26 +77,32 @@ export async function postSTT(wavBuffer) {
 
     socket.on('data', (data) => {
       let responseBuffer = data.toString();
-
-      let lines = responseBuffer.split('\n');
-
-      let transcription;
-
-      try {
-        transcription = lines.length ? JSON.parse(lines[lines.length - 1]) : null;
-        if(transcription?.text) {
-            console.log(`Transcription: ${transcription.text}`);
+      let raw = responseBuffer.split('\n')
+      let lines = raw.map(line => {
+        let parsed;
+        try {
+          parsed = JSON.parse(line);
+        } catch(e) {
+          parsed = {};
         }
-      } catch (e) {
-        console.error(`
-            Error parsing transcription response.
-            Response: ${responseBuffer}
-            Error: ${e}
-        `)
-      }
+        return parsed;
+      });
 
-      resolve(transcription);
-      socket.end();
+      lines.forEach((line, i) => {
+        if(typeof line.data_length !== 'undefined') {
+          dataLength = line.data_length;
+        } else if(typeof line.text !== 'undefined') {
+          dataTotal += Buffer.byteLength(raw[i], "utf8");
+          allTranscriptions.push(line.text);
+        }
+      });
+
+      if (dataTotal >= dataLength) {
+        let text = allTranscriptions.join(' ').trim();
+        console.log(`Transcription: ${text || '[no text]'}`);
+        resolve({text});
+        socket.end();
+      }
 
     });
 

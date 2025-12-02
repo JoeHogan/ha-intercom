@@ -6,18 +6,18 @@ const token = process.env.HOME_ASSISTANT_ACCESS_TOKEN;
 const ttsPrefix = process.env.TTS_PREFIX || null;
 const audioHost = process.env.AUDIO_HOST || `http://${(process.env.HOST || 'localhost')}:${(process.env.PORT || 3001)}`;
 
-export const postAudio = (wssId, entities) => {
+export const postAudio = (client, entities) => {
     return Promise.all(entities.map((entity) => {
         return axios.post(
-            `${haUrl}/api/services/media_player/play_media`,
+            `${haUrl || client.haUrl}/api/services/media_player/play_media`,
             {
                 entity_id: entity.entity_id,
-                media_content_id: `${audioHost}/listen/${wssId}`,
+                media_content_id: `${audioHost || client.audioHost}/listen/${client.wssId}`,
                 media_content_type: "music" // best choice for mp3
             },
             {
                 headers: {
-                    Authorization: `Bearer ${token}`,
+                    Authorization: `Bearer ${token || client.haToken}`,
                     'Content-Type': 'application/json'
                 }
             }
@@ -31,7 +31,7 @@ export const postAudio = (wssId, entities) => {
     }));
 };
 
-export const postAlexaTTS = (message, entities) => {
+export const postAlexaTTS = (client, message, entities) => {
     return Promise.all(entities.map((entity) => {
         const payload = {
             message: [(entity.tts_prefix || ttsPrefix || ''), message].join(' ').trim(),
@@ -42,9 +42,9 @@ export const postAlexaTTS = (message, entities) => {
             target: [entity.entity_id]
         };
         return axios.post(
-            `${haUrl}/api/services/notify/alexa_media`, payload, {
+            `${haUrl || client.haUrl}/api/services/notify/alexa_media`, payload, {
                 headers: {
-                    Authorization: `Bearer ${token}`,
+                    Authorization: `Bearer ${token || client.haToken}`,
                     'Content-Type': 'application/json'
                 }
             }
@@ -57,7 +57,7 @@ export const postAlexaTTS = (message, entities) => {
     }));
 };
 
-export const postTTS = (message, entities) => {
+export const postTTS = (client, message, entities) => {
     return Promise.all(entities.map((entity) => {
 
         let payload = {
@@ -74,10 +74,10 @@ export const postTTS = (message, entities) => {
         }
         
         return axios.post(
-            `${haUrl}/api/services/tts/speak`, payload,
+            `${haUrl || client.haUrl}/api/services/tts/speak`, payload,
              {
                 headers: {
-                    Authorization: `Bearer ${token}`,
+                    Authorization: `Bearer ${token || client.haToken}`,
                     'Content-Type': 'application/json'
                 }
             }

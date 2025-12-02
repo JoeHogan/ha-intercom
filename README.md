@@ -101,11 +101,10 @@ with category **Integration**.
 
 # Environment Settings (.env file)
 
-- HOST=192.168.1.X
-- PORT=3001
-- AUDIO_HOST=http://192.168.1.X:3001
-- WHISPER_HOST=192.168.1.X
-- WHISPER_PORT=10300
-- HOME_ASSISTANT_URL=https://my-ha-instance-url:8123
-- HOME_ASSISTANT_ACCESS_TOKEN= ...
-- TTS_PREFIX=Incoming Notification:
+- HOST=192.168.1.X (optional)
+- PORT=3001 (optional)
+- AUDIO_HOST=http://192.168.1.X:3001 (optional. Derived from the Home Assistant HA-Intercom config. Set this to override)
+- WHISPER_HOST=192.168.1.X:10300 (required. the IP Address and PORT of your Whisper instance)
+- HOME_ASSISTANT_URL=https://my-ha-instance-url:8123 (optional. Will use your Home Assistant External URL, Internal URL, or request origination url, in that order. Set this to override.)
+- HOME_ASSISTANT_ACCESS_TOKEN= ... (optional. Will use a token passed via the integration. Set this to override.)
+- TTS_PREFIX=Incoming Notification: (optional)
