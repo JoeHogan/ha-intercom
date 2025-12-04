@@ -86,6 +86,8 @@ export class HaIntercomCard extends LitElement {
     this.listening = false;
     this.indicatorTimeout = null;
     this.getDevices = null;
+    this.pingInterval = null;
+    this.PING_INTERVAL_MS = 30000;
   }
 
   render() {
@@ -182,7 +184,7 @@ export class HaIntercomCard extends LitElement {
         // The MIME type MUST match the output from your server (audio/mpeg for MP3)
         const mimeType = 'audio/mpeg';
         if (!MediaSource.isTypeSupported(mimeType)) {
-            console.error(`MIME type ${mimeType} is not supported on this device.`);
+            console.error(`HA-Intercom: MIME type ${mimeType} is not supported on this device.`);
             return;
         }
         this.sourceBuffer = this.mediaSource.addSourceBuffer(mimeType);
@@ -193,19 +195,19 @@ export class HaIntercomCard extends LitElement {
                 // Try to play as soon as we've added a chunk
                 this.audioElement.play().catch(e => {
                       // Playback might fail if the user hasn't interacted with the page yet
-                      console.warn('Playback prevented by browser policy (autoplay)', e);
+                      console.warn('HA-Intercom: Playback prevented by browser policy (autoplay)', e);
                 });
             }
         });
 
         // Start the audio stream once the first chunk arrives
-        this.audioElement.play().catch(e => console.warn('Autoplay failed:', e));
+        this.audioElement.play().catch(e => console.warn('HA-Intercom: Autoplay failed:', e));
     });
 
     this.mediaSource.addEventListener('sourceclose', () => {
           this.isSourceOpen = false;
           this.sourceBuffer = null;
-          console.log('MediaSource closed.');
+          console.log('HA-Intercom: MediaSource closed.');
     });
   }
 
@@ -213,19 +215,20 @@ export class HaIntercomCard extends LitElement {
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
     const host = window.location.host;
 
-    console.log('Attempting to connect...');
+    console.log('HA-Intercom: Attempting to connect...');
     let access_token = await getAccessToken();
     this.ws = new WebSocket(`${protocol}://${host}/api/ha_intercom/ws?id=${this.ID}&token=${access_token}`);
     this.ws.binaryType = 'arraybuffer';
 
     this.connectTimer = setTimeout(() => {
-      console.warn('Connection timeout. Retrying...');
+      console.warn('HA-Intercom: Connection timeout. Retrying...');
       this.ws.close();
     }, this.connectTimeout);
 
     this.ws.onopen = () => {
       clearTimeout(this.connectTimer);
-      console.log('WebSocket connected');
+      console.log('HA-Intercom: WebSocket connected');
+      this.startPingInterval();
     };
 
     this.ws.onmessage = (event) => {
@@ -238,7 +241,7 @@ export class HaIntercomCard extends LitElement {
             try {
                 this.sourceBuffer.appendBuffer(data);
             } catch (e) {
-                console.error('Error appending audio buffer:', e);
+                console.error('HA-Intercom: Error appending audio buffer:', e);
                 // Often happens when the stream is not properly formatted or MediaSource closes
             }
         }
@@ -246,13 +249,14 @@ export class HaIntercomCard extends LitElement {
     };
 
     this.ws.onerror = (err) => {
-      console.error('WebSocket error:', err);
+      console.error('HA-Intercom: WebSocket error:', err);
     };
 
     this.ws.onclose = () => {
       clearTimeout(this.connectTimer);
+      this.stopPingInterval();
       if (!this.isManuallyClosed) {
-        console.warn('WebSocket closed. Retrying...');
+        console.warn('HA-Intercom: WebSocket closed. Retrying...');
         setTimeout(() => this.connectWebSocket(), this.retryDelay);
       }
     };
@@ -334,7 +338,7 @@ export class HaIntercomCard extends LitElement {
         return recorder;
       })
       .catch(err => {
-        console.error('Recording error:', err);
+        console.error('HA-Intercom: Recording error:', err);
         this.stopListening();
       });
   }
@@ -358,6 +362,27 @@ export class HaIntercomCard extends LitElement {
     });
     this.initIndicator();
   }
+
+  startPingInterval() {
+      if (this.pingInterval) {
+          clearInterval(this.pingInterval);
+      }
+      this.pingInterval = setInterval(() => {
+          if (this.ws?.readyState === WebSocket.OPEN) {
+              this.ws.send(this.createMessage({ type: 'ping' }));
+          } else {
+              this.stopPingInterval();
+          }
+      }, this.PING_INTERVAL_MS);
+  }
+
+  stopPingInterval() {
+      if (this.pingInterval) {
+          clearInterval(this.pingInterval);
+          this.pingInterval = null;
+      }
+  }
+
 }
 
 customElements.define('ha-intercom-card', HaIntercomCard);

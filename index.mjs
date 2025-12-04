@@ -72,9 +72,6 @@ wss.on('connection', (ws, request) => {
         ttsEntities = getEntitesByType(targets, 'tts');
         alexaEntities = getEntitesByType(targets, 'alexa');
     };
-
-    // const startAudio = (client) => {
-
     //     if(!audioEntities.length) {
     //         return null;
     //     }
@@ -240,6 +237,9 @@ wss.on('connection', (ws, request) => {
 
         const {header, payload} = getMessage(data);
       
+        if(header.type === 'ping') {
+            ws.send(encodeMessage({type: 'pong'}));
+        }
         if(header.type === 'start') {
             setPlayers(header);
             const client = new ClientSession({id, haUrl, haToken, audioHost});
@@ -276,20 +276,6 @@ server.on('upgrade', (request, socket, head) => {
     socket.destroy();
   }
 });
-
-// app.get('/listen/:wssId', (req, res) => {
-//     const wssId = req.params.wssId;
-//     const audioStream = audioStreams[wssId];
-//     if (audioStream) {
-//         console.log(`${wssId}: Streaming AUDIO to client...`);
-//         res.setHeader('Content-Type', 'music');
-//         res.setHeader('Transfer-Encoding', 'chunked');
-//         audioStream.pipe(res);
-//     } else {
-//         console.error(`${wssId}: Failed to stream AUDIO to client: Audio Stream not found.`);
-//         res.status(400).send({message: `No audio stream available`});
-//     }
-// });
 
 app.get('/listen/:wssId', (req, res) => {
     const wssId = req.params.wssId;
