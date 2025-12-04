@@ -18,12 +18,30 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 class ClientSession {
-    constructor(config = {}) {
+    constructor(ws, config = {}) {
         this.wssId = uuidv4();
+        this.id = config.id;
         this.haUrl = config.haUrl;
         this.haToken = config.haToken;
         this.audioHost = config.audioHost;
     }
+}
+
+const encodeMessage = (header, data = null) => {
+  const jsonString = JSON.stringify(header);
+  const jsonBuffer = Buffer.from(jsonString, 'utf8');
+  const headerLength = jsonBuffer.length;
+  const headerLengthBuffer = Buffer.alloc(4);
+  headerLengthBuffer.writeUInt32BE(headerLength, 0); 
+  let dataBuffer = Buffer.alloc(0);
+  if (data) {
+      dataBuffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
+  }
+  return Buffer.concat([
+    headerLengthBuffer,
+    jsonBuffer,
+    dataBuffer
+  ]);
 }
 
 app.use(express.static('custom_components/ha_intercom/www'));
@@ -41,9 +59,11 @@ wss.on('connection', (ws, request) => {
     let ttsEntities;
     let alexaEntities;
     const url = new URL(request.url, `http://localhost:${port}`);
+    const id = url.searchParams.get('id');
     const haUrl = url.searchParams.get('haUrl');
     const haToken = url.searchParams.get('haToken');
     const audioHost = url.searchParams.get('audioHost');
+    ws.clientId = id;
 
     const getEntitesByType = (targets, type) => {
         type = (type || '').toLowerCase();
@@ -52,17 +72,60 @@ wss.on('connection', (ws, request) => {
 
     const setPlayers = (header) => {
         let targets = (header.target || [])
-            .filter(item => !!item?.entity_id && !!item.type)
+            .filter(item => !!item?.entity_id)
             .map(item => {
-                item.type = item.type.trim().toLowerCase();
-                item.entity_id = item.entity_id.trim();
-                return item;
+                let entity_id = item.entity_id.trim();
+                let type = entity_id.startsWith('ha_client') ? 'audio' : item.type ? item.type.trim().toLowerCase() : 'tts';
+                return {
+                    type,
+                    entity_id
+                };
             })
             .filter((item, i, arr) => arr.findIndex(ai => ai.entity_id === item.entity_id) === i); // remove duplicate entities
         audioEntities = getEntitesByType(targets, 'audio');
         ttsEntities = getEntitesByType(targets, 'tts');
         alexaEntities = getEntitesByType(targets, 'alexa');
     };
+
+    // const startAudio = (client) => {
+
+    //     if(!audioEntities.length) {
+    //         return null;
+    //     }
+
+    //     const audioStream = new PassThrough();
+    //     audioStreams[client.wssId] = audioStream;
+
+    //     console.log(`${client.wssId}: Sending AUDIO to ${audioEntities.map(({entity_id}) => entity_id).join(', ')}`);
+
+    //     postAudio(client, audioEntities);
+
+    //     const instance = spawn('ffmpeg', [
+    //         '-f', 'webm',
+    //         '-i', 'pipe:0',
+    //         '-f', 'mp3',
+    //         '-acodec', 'libmp3lame',
+    //         '-ar', '44100',
+    //         '-'
+    //     ]);
+    //     // Output MP3 stream chunks to console or broadcast
+    //     instance.stdout.on('data', chunk => {
+    //         // You could broadcast this to other WebSocket clients or save it
+    //         audioStream.write(Buffer.from(chunk));
+    //     });
+
+    //     instance.stderr.on('data', data => {
+    //         console.error('ffmpeg:', data.toString());
+    //     });
+
+    //     instance.on('close', code => {
+    //         console.log('ffmpeg exited with code', code);
+    //         audioStream.end();
+    //         delete audioStreams[client.wssId];
+    //     });
+
+    //     return instance;
+    // };
 
     const startAudio = (client) => {
 
@@ -73,22 +136,38 @@ wss.on('connection', (ws, request) => {
         const audioStream = new PassThrough();
         audioStreams[client.wssId] = audioStream;
 
-        console.log(`${client.wssId}: Sending AUDIO to ${audioEntities.map(({entity_id}) => entity_id).join(', ')}`);
+        console.log(`${client.wssId}: Sending AUDIO (MP3) to ${audioEntities.map(({entity_id}) => entity_id).join(', ')}`);
 
-        postAudio(client, audioEntities);
+        let haClients = audioEntities.filter(item => item.entity_id.startsWith('ha_client'));
+        let audioClients = audioEntities.filter(item => !item.entity_id.startsWith('ha_client'));
+        postAudio(client, audioClients);
 
         const instance = spawn('ffmpeg', [
+            '-probesize', '32',
+            '-analyzeduration', '0',
             '-f', 'webm',
             '-i', 'pipe:0',
             '-f', 'mp3',
             '-acodec', 'libmp3lame',
             '-ar', '44100',
+            '-compression_level', '0', 
+            '-flush_packets', '1', 
             '-'
         ]);
-        // Output MP3 stream chunks to console or broadcast
+        
+        // Output MP3 stream chunks
         instance.stdout.on('data', chunk => {
-            // You could broadcast this to other WebSocket clients or save it
-            audioStream.write(Buffer.from(chunk));
+            let buffer = Buffer.from(chunk);
+            audioStream.write(buffer);
+            if(haClients.length) {
+                let haClientIds = haClients.filter(item => !!item.entity_id).map(item => item.entity_id.split('.')[item.entity_id.split('.').length -1]);
+                wss.clients
+                    .forEach((item) => {
+                        if(item.clientId && haClientIds.indexOf(item.clientId) > -1) {
+                            item.send(encodeMessage({type: 'audio', from: client.id}, buffer).toJSON());
+                        }
+                    });
+            }
         });
 
         instance.stderr.on('data', data => {
@@ -130,7 +209,7 @@ wss.on('connection', (ws, request) => {
             postSTT(wavBuffer)
                 .then((res) => {
                     let message = res?.text?.trim();
-                    ws.send(message || '[no text]');
+                    ws.send(encodeMessage({type: 'transcription', text: (message || '[no text]')}).toJSON());
                     if (message) {
                         if(ttsEntities.length) {
                             console.log(`${client.wssId}: Sending TTS to ${ttsEntities.map(({entity_id}) => entity_id).join(', ')}`);
@@ -142,7 +221,7 @@ wss.on('connection', (ws, request) => {
                         }
                     }
                 })
-                .catch(() => ws.send("[error transcribing audio]"));
+                .catch(() => ws.send(encodeMessage({type: 'transcription', text: '[error transcribing audio]'}).toJSON()));
         });
 
         instance.stderr.on('data', data => {
@@ -177,7 +256,7 @@ wss.on('connection', (ws, request) => {
       
         if(header.type === 'start') {
             setPlayers(header);
-            const client = new ClientSession({haUrl, haToken, audioHost});
+            const client = new ClientSession({id, haUrl, haToken, audioHost});
             ffmpegAudio = startAudio(client);
             ffmpegSTT = startSTT(client);
         }
@@ -211,12 +290,26 @@ server.on('upgrade', (request, socket, head) => {
   }
 });
 
+// app.get('/listen/:wssId', (req, res) => {
+//     const wssId = req.params.wssId;
+//     const audioStream = audioStreams[wssId];
+//     if (audioStream) {
+//         console.log(`${wssId}: Streaming AUDIO to client...`);
+//         res.setHeader('Content-Type', 'music');
+//         res.setHeader('Transfer-Encoding', 'chunked');
+//         audioStream.pipe(res);
+//     } else {
+//         console.error(`${wssId}: Failed to stream AUDIO to client: Audio Stream not found.`);
+//         res.status(400).send({message: `No audio stream available`});
+//     }
+// });
+
 app.get('/listen/:wssId', (req, res) => {
     const wssId = req.params.wssId;
     const audioStream = audioStreams[wssId];
     if (audioStream) {
-        console.log(`${wssId}: Streaming AUDIO to client...`);
-        res.setHeader('Content-Type', 'music');
+        console.log(`${wssId}: Streaming AUDIO (MP3) to client...`);
+        res.setHeader('Content-Type', 'audio/mpeg');
         res.setHeader('Transfer-Encoding', 'chunked');
         audioStream.pipe(res);
     } else {

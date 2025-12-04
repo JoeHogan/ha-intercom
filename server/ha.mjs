@@ -4,7 +4,7 @@ import axios from 'axios';
 const haUrl = process.env.HOME_ASSISTANT_URL;
 const token = process.env.HOME_ASSISTANT_ACCESS_TOKEN;
 const ttsPrefix = process.env.TTS_PREFIX || null;
-const audioHost = process.env.AUDIO_HOST || `http://${(process.env.HOST || 'localhost')}:${(process.env.PORT || 3001)}`;
+const audioHost = process.env.AUDIO_HOST || `http://localhost:${(process.env.PORT || 3001)}`;
 
 export const postAudio = (client, entities) => {
     return Promise.all(entities.map((entity) => {
@@ -13,7 +13,7 @@ export const postAudio = (client, entities) => {
             {
                 entity_id: entity.entity_id,
                 media_content_id: `${audioHost || client.audioHost}/listen/${client.wssId}`,
-                media_content_type: "music" // best choice for mp3
+                media_content_type: "audio/mpeg"
             },
             {
                 headers: {

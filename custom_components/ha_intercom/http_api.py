@@ -49,6 +49,8 @@ async def async_register_proxy(hass: HomeAssistant, entry: ConfigEntry):
 
         # --- 2. Build backend WebSocket URL with custom query parameters ---
 
+        clientId = request.query.get("id")
+
         # 2.1 Determine the HA URL to send to the backend, prioritizing configured URLs
         ha_url = None
         # Priority 1: External URL
@@ -63,6 +65,7 @@ async def async_register_proxy(hass: HomeAssistant, entry: ConfigEntry):
 
         # Initialize parameters with the mandatory haUrl
         new_params = {
+            "id": clientId,
             "haUrl": ha_url,
         }
 
