@@ -12,7 +12,7 @@ import { postAudio, postAlexaTTS, postTTS } from './server/ha.mjs';
 import { getMessage, encodeMessage } from './server/ws.mjs';
 const haUrl = process.env.HOME_ASSISTANT_URL;
 const token = process.env.HOME_ASSISTANT_ACCESS_TOKEN;
-const audioHost = process.env.AUDIO_HOST || `http://localhost:3001`;
+const audioHost = process.env.AUDIO_HOST;
 
 const app = express();
 const server = http.createServer(app);
@@ -26,7 +26,7 @@ class ClientSession {
         this.id = config.id;
         this.haUrl = haUrl || config.haUrl;
         this.haToken = token || config.haToken;
-        this.audioHost = audioHost || config.audioHost;
+        this.audioHost = audioHost || config.audioHost || `http://localhost:3001`;
     }
 }
 
