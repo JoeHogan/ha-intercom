@@ -38,6 +38,8 @@ export async function postSTT(wavBuffer) {
     const socket = new net.Socket();
     let resolved = false;
 
+    console.log([`Whisper URL: ${whisperHost}:${whisperPort}`]);
+
     socket.connect(whisperPort, whisperHost, () => {
       const pcmData = wavBuffer.subarray(44);
       const totalSamples = pcmData.length / SAMPLE_WIDTH;
