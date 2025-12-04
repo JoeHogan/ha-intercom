@@ -135,6 +135,7 @@ services:
       HOME_ASSISTANT_URL: "http://192.168.X.X:8123" #optional
       WHISPER_HOST: "192.168.X.X:10300" # required for TTS
       TTS_PREFIX: "Incoming Notification:" # optional
+      HOME_ASSISTANT_ACCESS_TOKEN: "[your long-lived access token]" # optional
     restart: always
     ports:
       - 3001:3001
