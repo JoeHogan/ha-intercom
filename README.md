@@ -125,8 +125,6 @@ with category **Integration**.
 
 # Environment Settings (.env file)
 
-- PORT=3001
-    - Optional
 - AUDIO_HOST=http://192.168.1.X:3001
     - Optional
     - Derived from the Home Assistant HA-Intercom config.

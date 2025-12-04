@@ -3,7 +3,7 @@ FROM node:23-slim
 
 RUN apt-get update && apt-get install -y ffmpeg && apt-get clean
 
-# Set the working directory
+# Set the working directory (already present, but good practice to show where it's set)
 WORKDIR /app
 
 # Copy package.json and package-lock.json
@@ -21,3 +21,9 @@ RUN chown -R node:node /app
 # Switch to non-root user
 USER node
 
+WORKDIR /app 
+
+EXPOSE 3001
+
+# Define the default command to run when the container starts
+CMD ["npm", "run", "start"]

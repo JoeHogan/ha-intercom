@@ -12,16 +12,16 @@ import { postAudio, postAlexaTTS, postTTS } from './server/ha.mjs';
 import { getMessage, encodeMessage } from './server/ws.mjs';
 const haUrl = process.env.HOME_ASSISTANT_URL;
 const token = process.env.HOME_ASSISTANT_ACCESS_TOKEN;
-const audioHost = process.env.AUDIO_HOST || `http://localhost:${(process.env.PORT || 3001)}`;
+const audioHost = process.env.AUDIO_HOST || `http://localhost:3001`;
 
 const app = express();
 const server = http.createServer(app);
-const port = process.env.PORT || 3001;
+const port = 3001;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 class ClientSession {
-    constructor(ws, config = {}) {
+    constructor(config = {}) {
         this.wssId = uuidv4();
         this.id = config.id;
         this.haUrl = haUrl || config.haUrl;

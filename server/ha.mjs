@@ -1,5 +1,10 @@
 
 import axios from 'axios';
+import https from 'https';
+
+const httpsAgent = new https.Agent({
+  rejectUnauthorized: false, // disables SSL cert verification
+});
 
 const ttsPrefix = process.env.TTS_PREFIX || null;
 
@@ -13,6 +18,7 @@ export const postAudio = (client, entities) => {
                 media_content_type: "audio/mpeg"
             },
             {
+                httpsAgent,
                 headers: {
                     Authorization: `Bearer ${client.haToken}`,
                     'Content-Type': 'application/json'
@@ -40,6 +46,7 @@ export const postAlexaTTS = (client, message, entities) => {
         };
         return axios.post(
             `${client.haUrl}/api/services/notify/alexa_media`, payload, {
+                httpsAgent,
                 headers: {
                     Authorization: `Bearer ${client.haToken}`,
                     'Content-Type': 'application/json'
