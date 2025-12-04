@@ -1,6 +1,6 @@
 
 import axios from 'axios';
-const https = require('https');
+import https from 'https';
 
 const httpsAgent = new https.Agent({
   rejectUnauthorized: false, // disables SSL cert verification

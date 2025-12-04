@@ -21,7 +21,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 class ClientSession {
-    constructor(ws, config = {}) {
+    constructor(config = {}) {
         this.wssId = uuidv4();
         this.id = config.id;
         this.haUrl = haUrl || config.haUrl;
