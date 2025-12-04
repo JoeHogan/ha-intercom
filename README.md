@@ -123,7 +123,24 @@ with category **Integration**.
 - run `docker compose build`
 - run `docker compose up`
 
-# Environment Settings (.env file)
+# Docker Compose Example
+
+```yaml
+services:
+  ha_intercom:
+    image: josephhogan/ha-intercom:latest
+    container_name: ha-intercom
+    environment:
+      AUDIO_HOST: "http://192.168.X.X:3001" # optional
+      HOME_ASSISTANT_URL: "http://192.168.X.X:8123" #optional
+      WHISPER_HOST: "192.168.X.X:10300" # required for TTS
+      TTS_PREFIX: "Incoming Notification:" # optional
+    restart: always
+    ports:
+      - 3001:3001
+```
+
+# Environment Variables
 
 - AUDIO_HOST=http://192.168.1.X:3001
     - Optional
