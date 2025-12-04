@@ -16,3 +16,20 @@ export const getMessage = (data) => {
 
     return {header, payload};
 };
+
+export const encodeMessage = (header, data = null) => {
+  const jsonString = JSON.stringify(header);
+  const jsonBuffer = Buffer.from(jsonString, 'utf8');
+  const headerLength = jsonBuffer.length;
+  const headerLengthBuffer = Buffer.alloc(4);
+  headerLengthBuffer.writeUInt32BE(headerLength, 0); 
+  let dataBuffer = Buffer.alloc(0);
+  if (data) {
+      dataBuffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
+  }
+  return Buffer.concat([
+    headerLengthBuffer,
+    jsonBuffer,
+    dataBuffer
+  ]);
+};

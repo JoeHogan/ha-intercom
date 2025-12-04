@@ -1,23 +1,20 @@
 
 import axios from 'axios';
 
-const haUrl = process.env.HOME_ASSISTANT_URL;
-const token = process.env.HOME_ASSISTANT_ACCESS_TOKEN;
 const ttsPrefix = process.env.TTS_PREFIX || null;
-const audioHost = process.env.AUDIO_HOST || `http://localhost:${(process.env.PORT || 3001)}`;
 
 export const postAudio = (client, entities) => {
     return Promise.all(entities.map((entity) => {
         return axios.post(
-            `${haUrl || client.haUrl}/api/services/media_player/play_media`,
+            `${client.haUrl}/api/services/media_player/play_media`,
             {
                 entity_id: entity.entity_id,
-                media_content_id: `${audioHost || client.audioHost}/listen/${client.wssId}`,
+                media_content_id: `${client.audioHost}/listen/${client.wssId}`,
                 media_content_type: "audio/mpeg"
             },
             {
                 headers: {
-                    Authorization: `Bearer ${token || client.haToken}`,
+                    Authorization: `Bearer ${client.haToken}`,
                     'Content-Type': 'application/json'
                 }
             }
@@ -42,9 +39,9 @@ export const postAlexaTTS = (client, message, entities) => {
             target: [entity.entity_id]
         };
         return axios.post(
-            `${haUrl || client.haUrl}/api/services/notify/alexa_media`, payload, {
+            `${client.haUrl}/api/services/notify/alexa_media`, payload, {
                 headers: {
-                    Authorization: `Bearer ${token || client.haToken}`,
+                    Authorization: `Bearer ${client.haToken}`,
                     'Content-Type': 'application/json'
                 }
             }
@@ -74,10 +71,10 @@ export const postTTS = (client, message, entities) => {
         }
         
         return axios.post(
-            `${haUrl || client.haUrl}/api/services/tts/speak`, payload,
+            `${client.haUrl}/api/services/tts/speak`, payload,
              {
                 headers: {
-                    Authorization: `Bearer ${token || client.haToken}`,
+                    Authorization: `Bearer ${client.haToken}`,
                     'Content-Type': 'application/json'
                 }
             }
