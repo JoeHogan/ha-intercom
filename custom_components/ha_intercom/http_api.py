@@ -47,19 +47,16 @@ async def async_register_proxy(hass: HomeAssistant, entry: ConfigEntry):
         if user is None:
             return web.Response(status=401, text="Unauthorized")
 
-        # --- 2. Build backend WebSocket URL with custom query parameters ---
+        # --- 2. Build backend WebSocket URL with custom query parameters (unchanged) ---
 
         clientId = request.query.get("id")
 
         # 2.1 Determine the HA URL to send to the backend, prioritizing configured URLs
         ha_url = None
-        # Priority 1: External URL
         if hass.config.external_url:
             ha_url = hass.config.external_url.rstrip("/")
-        # Priority 2: Internal URL
         elif hass.config.internal_url:
             ha_url = hass.config.internal_url.rstrip("/")
-        # Priority 3: Fallback to the URL used for the current request
         else:
             ha_url = f"{request.url.scheme}://{request.host}"
 
@@ -71,11 +68,9 @@ async def async_register_proxy(hass: HomeAssistant, entry: ConfigEntry):
 
         # 2.2 Generate a new short-lived access token ONLY if a RefreshToken was provided
         if refresh_token_obj:
-            # FIX: Removed 'await' since Pylance indicates the function returns 'str' (a synchronous result)
             ha_token = hass.auth.async_create_access_token(
                 refresh_token_obj, request.remote
             )
-            # Conditionally add the haToken parameter
             new_params["haToken"] = ha_token
 
         # 2.3 Determine the backend's base URL
@@ -138,29 +133,51 @@ async def async_register_proxy(hass: HomeAssistant, entry: ConfigEntry):
             # --- 5. Proxy in both directions using explicit task management ---
 
             async def client_to_server():
+                """Proxies data/control frames from the HA Client to the Upstream Server."""
                 async for msg in ws_client:
-                    if msg.type == web.WSMsgType.TEXT:
+                    if msg.type == WSMsgType.TEXT:
                         await ws_server.send_str(msg.data)
-                    elif msg.type == web.WSMsgType.BINARY:
+                    elif msg.type == WSMsgType.BINARY:
                         await ws_server.send_bytes(msg.data)
-                    elif msg.type in (web.WSMsgType.CLOSE, web.WSMsgType.ERROR):
+                    elif msg.type == WSMsgType.PING:
+                        # **IMPORTANT FIX**: Relay PING to keep server connection alive.
+                        await ws_server.send_bytes(msg.data, WSMsgType.PING)
+                    elif msg.type == WSMsgType.PONG:
+                        # Relay PONG to server.
+                        await ws_server.send_bytes(msg.data, WSMsgType.PONG)
+                    elif msg.type == WSMsgType.CONTINUATION:
+                        # Relay continuation frames.
+                        await ws_server.send_bytes(msg.data, WSMsgType.CONTINUATION)
+                    elif msg.type in (WSMsgType.CLOSE, WSMsgType.ERROR):
                         # Signal closure to server
                         await ws_server.close()
                         break
-                # Ensure the function returns clean
                 return "client_closed"
 
             async def server_to_client():
+                """Proxies data/control frames from the Upstream Server to the HA Client."""
                 async for msg in ws_server:
-                    if msg.type == web.WSMsgType.TEXT:
+                    if msg.type == WSMsgType.TEXT:
                         await ws_client.send_str(msg.data)
-                    elif msg.type == web.WSMsgType.BINARY:
+                    elif msg.type == WSMsgType.BINARY:
                         await ws_client.send_bytes(msg.data)
-                    elif msg.type in (web.WSMsgType.CLOSE, web.WSMsgType.ERROR):
+                    elif msg.type == WSMsgType.PING:
+                        # **IMPORTANT FIX**: Relay PING to keep client connection alive.
+                        await ws_client.send_bytes(msg.data, WSMsgType.PING)
+                        # NOTE: aiohttp.ClientWebSocketResponse (ws_server) should automatically
+                        # respond with a PONG to the server when it receives a PING,
+                        # so explicit PONG is usually not needed here, but relaying the PING
+                        # to the client is essential for the client's keep-alive.
+                    elif msg.type == WSMsgType.PONG:
+                        # Relay PONG to client.
+                        await ws_client.send_bytes(msg.data, WSMsgType.PONG)
+                    elif msg.type == WSMsgType.CONTINUATION:
+                        # Relay continuation frames.
+                        await ws_client.send_bytes(msg.data, WSMsgType.CONTINUATION)
+                    elif msg.type in (WSMsgType.CLOSE, WSMsgType.ERROR):
                         # Signal closure to client
                         await ws_client.close()
                         break
-                # Ensure the function returns clean
                 return "server_closed"
 
             # Create tasks
@@ -179,6 +196,8 @@ async def async_register_proxy(hass: HomeAssistant, entry: ConfigEntry):
 
             # Re-raise exceptions from the completed tasks to surface errors if necessary
             for task in done:
+                # We call result() to ensure any exception raised in the task is surfaced here
+                # but we ignore the actual return value (e.g., "client_closed")
                 task.result()
 
         except asyncio.CancelledError:
