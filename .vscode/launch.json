@@ -1,0 +1,14 @@
+{
+    "configurations": [
+        {
+            "name": "Launch Dev",
+            "type": "node",
+            "cwd": "${workspaceRoot}",
+            "request": "launch",
+            "runtimeExecutable": "npm",
+            "runtimeArgs": [
+                "run-script", "start"
+            ],
+        }
+    ]
+}

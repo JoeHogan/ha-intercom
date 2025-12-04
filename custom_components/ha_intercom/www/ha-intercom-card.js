@@ -105,6 +105,7 @@ export class HaIntercomCard extends LitElement {
         ? html`<div class="latest-transcription">${this.latestTranscription}</div>`
         : html``
       }
+      <audio id="audio-playback" style="display: none;"></audio>
     `;
   }
 
@@ -113,6 +114,7 @@ export class HaIntercomCard extends LitElement {
       throw new Error("You need to specify a target for the intercom");
       }
       this.config = config;
+      this.ID = this.config.id || `auto_id_${Math.round(Math.random()*100000)}`;
       this.TARGETS = Array.isArray(this.config.target) ? this.config.target : [this.config.target];
   }
 
@@ -141,6 +143,7 @@ export class HaIntercomCard extends LitElement {
     }
     this.connectWebSocket();
     this.initIndicator();
+    this.setupAudioPlayback();
   }
 
   initIndicator() {
@@ -168,13 +171,51 @@ export class HaIntercomCard extends LitElement {
     this.latestTranscription = message;
   }
 
+  setupAudioPlayback() {
+    this.audioElement = this.shadowRoot.querySelector('#audio-playback');
+    this.mediaSource = new MediaSource();
+    this.audioElement.src = URL.createObjectURL(this.mediaSource);
+
+    // This event fires when MediaSource is ready to receive SourceBuffer.
+    this.mediaSource.addEventListener('sourceopen', () => {
+        this.isSourceOpen = true;
+        // The MIME type MUST match the output from your server (audio/mpeg for MP3)
+        const mimeType = 'audio/mpeg';
+        if (!MediaSource.isTypeSupported(mimeType)) {
+            console.error(`MIME type ${mimeType} is not supported on this device.`);
+            return;
+        }
+        this.sourceBuffer = this.mediaSource.addSourceBuffer(mimeType);
+
+        // Handle when the buffer is ready to accept new data
+        this.sourceBuffer.addEventListener('updateend', () => {
+            if (!this.sourceBuffer.updating && this.mediaSource.readyState === 'open') {
+                // Try to play as soon as we've added a chunk
+                this.audioElement.play().catch(e => {
+                      // Playback might fail if the user hasn't interacted with the page yet
+                      console.warn('Playback prevented by browser policy (autoplay)', e);
+                });
+            }
+        });
+
+        // Start the audio stream once the first chunk arrives
+        this.audioElement.play().catch(e => console.warn('Autoplay failed:', e));
+    });
+
+    this.mediaSource.addEventListener('sourceclose', () => {
+          this.isSourceOpen = false;
+          this.sourceBuffer = null;
+          console.log('MediaSource closed.');
+    });
+  }
+
   async connectWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
     const host = window.location.host;
 
     console.log('Attempting to connect...');
     let access_token = await getAccessToken();
-    this.ws = new WebSocket(`${protocol}://${host}/api/ha_intercom/ws?token=${access_token}`);
+    this.ws = new WebSocket(`${protocol}://${host}/api/ha_intercom/ws?id=${this.ID}&token=${access_token}`);
     this.ws.binaryType = 'arraybuffer';
 
     this.connectTimer = setTimeout(() => {
@@ -188,7 +229,20 @@ export class HaIntercomCard extends LitElement {
     };
 
     this.ws.onmessage = (event) => {
-      this.setLatestTranscription(event.data);
+      const { header, data } = this.decodeMessage(event.data);
+      let { type, text } = header;
+      if (type === 'transcription') {
+        this.setLatestTranscription(text);
+      } else if (type === 'audio') {
+        if (this.isSourceOpen && this.sourceBuffer && !this.sourceBuffer.updating) {
+            try {
+                this.sourceBuffer.appendBuffer(data);
+            } catch (e) {
+                console.error('Error appending audio buffer:', e);
+                // Often happens when the stream is not properly formatted or MediaSource closes
+            }
+        }
+      }
     };
 
     this.ws.onerror = (err) => {
@@ -228,6 +282,24 @@ export class HaIntercomCard extends LitElement {
     return buffer;
   }
 
+  decodeMessage(buffer) {
+    if (buffer.byteLength < 4) {
+        throw new Error('Received buffer is too small to contain the JSON header length prefix.');
+    }
+    const view = new DataView(buffer);
+    const jsonHeaderLength = view.getUint32(0, false);
+    const headerStart = 4; // JSON header starts after the 4-byte prefix
+    const headerEnd = headerStart + jsonHeaderLength;
+    if (buffer.byteLength < headerEnd) {
+        throw new Error(`Buffer size (${buffer.byteLength}) is less than claimed header end (${headerEnd}). Data corrupted.`);
+    }
+    const jsonHeaderBuffer = buffer.slice(headerStart, headerEnd);
+    const jsonString = new TextDecoder('utf-8').decode(jsonHeaderBuffer);
+    const header = JSON.parse(jsonString);
+    const data = buffer.slice(headerEnd);
+    return { header, data };
+  }
+
   checkCancelable(e) {
     if (e.cancelable) {
       e.preventDefault();
@@ -243,7 +315,7 @@ export class HaIntercomCard extends LitElement {
     this.checkCancelable(e);
 
     this.listening = true;
-    this.ws?.send(this.createMessage({ type: 'start', target: this.TARGETS }));
+    this.ws?.send(this.createMessage({ id: this.ID, type: 'start', target: this.TARGETS }));
     this.setIndicator();
 
     this.getDevices = navigator.mediaDevices.getUserMedia({ audio: true })
