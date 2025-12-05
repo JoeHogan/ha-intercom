@@ -10,15 +10,26 @@ import { spawn } from 'child_process';
 import { postSTT } from './server/stt.mjs';
 import { postAudio, postAlexaTTS, postTTS } from './server/ha.mjs';
 import { getMessage, encodeMessage } from './server/ws.mjs';
+
 const haUrl = process.env.HOME_ASSISTANT_URL;
 const token = process.env.HOME_ASSISTANT_ACCESS_TOKEN;
 const audioHost = process.env.AUDIO_HOST;
+const audioPoolSize = process.env.AUDIO_POOL_SIZE ? parseInt(process.env.AUDIO_POOL_SIZE) : 2; // For audio streaming
+const sttPoolSize = process.env.STT_POOL_SIZE ? parseInt(process.env.STT_POOL_SIZE) : 1; // For STT transcription
 
 const app = express();
 const server = http.createServer(app);
 const port = 3001;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Global Pools
+const ffmpegQueue = []; // Audio Streaming (MP3) Pool
+const sttFfmpegQueue = []; // STT Processing (WAV) Pool
+
+// Active Session Maps
+const activeFfmpegSessions = new Map(); // Maps wssId -> Audio Instance
+const activeSttSessions = new Map();    // Maps wssId -> STT Instance
 
 class ClientSession {
     constructor(config = {}) {
@@ -30,20 +41,108 @@ class ClientSession {
     }
 }
 
-app.use(express.static('custom_components/ha_intercom/www'));
-
-const wss = new WebSocketServer({ noServer: true });
-
 const audioStreams = {};
 
-wss.on('connection', (ws, request) => {
+// --- GLOBAL FACTORY AND HELPER FUNCTIONS (DEFINED ONCE) ---
+
+const createFfmpegInstance = () => {
+    const child = spawn('ffmpeg', [
+        '-probesize', '32',
+        '-analyzeduration', '0',
+        '-f', 'webm',
+        '-i', 'pipe:0', 
+        '-f', 'mp3',
+        '-acodec', 'libmp3lame',
+        '-ar', '44100',
+        '-compression_level', '0', 
+        '-flush_packets', '1', 
+        '-'
+    ]);
+    const inputPassThrough = new PassThrough();
+    inputPassThrough.pipe(child.stdin);
+
+    child.stderr.on('data', data => {
+        console.error(`FFMPEG [PID ${child.pid}] (Audio) stderr:`, data.toString());
+    });
+    child.on('error', (err) => {
+        console.error(`FFMPEG [PID ${child.pid}] (Audio) process error:`, err);
+    });
+
+    return { child, input: inputPassThrough, pid: child.pid, active: false };
+};
+
+const createSttFfmpegInstance = () => {
+    const child = spawn('ffmpeg', [
+        '-f', 'webm', 
+        '-i', 'pipe:0', 
+        '-ac', '1', 
+        '-ar', '16000', 
+        '-f', 'wav', 
+        'pipe:1' 
+    ]);
+    const inputPassThrough = new PassThrough();
+    inputPassThrough.pipe(child.stdin);
+
+    child.stderr.on('data', data => {
+        console.error(`FFMPEG [PID ${child.pid}] (STT) stderr:`, data.toString());
+    });
+    child.on('error', (err) => {
+        console.error(`FFMPEG [PID ${child.pid}] (STT) process error:`, err);
+    });
+    
+    const wavChunks = [];
+    child.stdout.on('data', chunk => {
+        wavChunks.push(chunk);
+    });
+
+    return { child, input: inputPassThrough, pid: child.pid, active: false, wavChunks };
+};
+
+const killInstance = (ffmpeg) => {
+    if (ffmpeg?.child) {
+        ffmpeg.input.end();
+        ffmpeg.child.stdin.end();
+        ffmpeg.child.kill('SIGKILL');
+        console.log(`FFMPEG [PID ${ffmpeg.pid}] forcefully terminated.`);
+    }
+};
+
+const refillFFmpegPool = () => {
+    while (ffmpegQueue.length < audioPoolSize) {
+        console.log("Audio Pool refill initiated...");
+        const instance = createFfmpegInstance(); 
+        ffmpegQueue.push(instance);
+        console.log(`Refilled Audio Pool with [PID ${instance.pid}]. Current size: ${ffmpegQueue.length}`);
+    }
+};
+
+const refillSttPool = () => {
+    while (sttFfmpegQueue.length < sttPoolSize) {
+        console.log("STT Pool refill initiated...");
+        const instance = createSttFfmpegInstance(); 
+        sttFfmpegQueue.push(instance);
+        console.log(`Refilled STT Pool with [PID ${instance.pid}]. Current size: ${sttFfmpegQueue.length}`);
+    }
+};
+
+const initializeFFmpegPools = () => {
+    refillFFmpegPool();
+    refillSttPool();
+};
+
+const getEntitesByType = (targets, type) => {
+    type = (type || '').toLowerCase();
+    return targets.filter(item => item.type.toLowerCase().trim() === type);
+};
+
+// --- CONNECTION HANDLER FUNCTION ---
+const handleConnection = (ws, request) => {
     console.log('WebSocket client connected');
 
-    let ffmpegAudio;
-    let ffmpegSTT;
     let audioEntities;
     let ttsEntities;
     let alexaEntities;
+    
     const url = new URL(request.url, `http://localhost:${port}`);
     const id = url.searchParams.get('id');
     const haUrl = url.searchParams.get('haUrl');
@@ -51,10 +150,7 @@ wss.on('connection', (ws, request) => {
     const audioHost = url.searchParams.get('audioHost');
     ws.clientId = id;
 
-    const getEntitesByType = (targets, type) => {
-        type = (type || '').toLowerCase();
-        return targets.filter(item => item.type.toLowerCase().trim() === type);
-    };
+    const clientSession = new ClientSession({id, haUrl, haToken, audioHost});
 
     const setPlayers = (header) => {
         let targets = (header.target || [])
@@ -67,48 +163,13 @@ wss.on('connection', (ws, request) => {
                     entity_id
                 };
             })
-            .filter((item, i, arr) => arr.findIndex(ai => ai.entity_id === item.entity_id) === i); // remove duplicate entities
+            .filter((item, i, arr) => arr.findIndex(ai => ai.entity_id === item.entity_id) === i);
         audioEntities = getEntitesByType(targets, 'audio');
         ttsEntities = getEntitesByType(targets, 'tts');
         alexaEntities = getEntitesByType(targets, 'alexa');
     };
-    //     if(!audioEntities.length) {
-    //         return null;
-    //     }
 
-    //     const audioStream = new PassThrough();
-    //     audioStreams[client.wssId] = audioStream;
-
-    //     console.log(`${client.wssId}: Sending AUDIO to ${audioEntities.map(({entity_id}) => entity_id).join(', ')}`);
-
-    //     postAudio(client, audioEntities);
-
-    //     const instance = spawn('ffmpeg', [
-    //         '-f', 'webm',
-    //         '-i', 'pipe:0',
-    //         '-f', 'mp3',
-    //         '-acodec', 'libmp3lame',
-    //         '-ar', '44100',
-    //         '-'
-    //     ]);
-    //     // Output MP3 stream chunks to console or broadcast
-    //     instance.stdout.on('data', chunk => {
-    //         // You could broadcast this to other WebSocket clients or save it
-    //         audioStream.write(Buffer.from(chunk));
-    //     });
-
-    //     instance.stderr.on('data', data => {
-    //         console.error('ffmpeg:', data.toString());
-    //     });
-
-    //     instance.on('close', code => {
-    //         console.log('ffmpeg exited with code', code);
-    //         audioStream.end();
-    //         delete audioStreams[client.wssId];
-    //     });
-
-    //     return instance;
-    // };
+    // --- Core Logic Functions (defined within handler to access client-specific state) ---
 
     const startAudio = (client) => {
 
@@ -116,6 +177,21 @@ wss.on('connection', (ws, request) => {
             return null;
         }
 
+        let currentInstance = ffmpegQueue.pop(); 
+
+        if (!currentInstance) {
+            console.warn("Audio Pool empty. Synchronously creating a temporary instance.");
+            currentInstance = createFfmpegInstance(); 
+        }
+
+        activeFfmpegSessions.set(client.wssId, currentInstance);
+        currentInstance.active = true;
+        
+        console.log(`WS ${client.id} started AUDIO session with FFMPEG [PID ${currentInstance.pid}]`);
+        
+        process.nextTick(refillFFmpegPool);
+        console.log(`Scheduled Audio pool refill.`);
+        
         const audioStream = new PassThrough();
         audioStreams[client.wssId] = audioStream;
 
@@ -124,24 +200,15 @@ wss.on('connection', (ws, request) => {
         let haClients = audioEntities.filter(item => item.entity_id.startsWith('ha_client'));
         let audioClients = audioEntities.filter(item => !item.entity_id.startsWith('ha_client'));
         postAudio(client, audioClients);
-
-        const instance = spawn('ffmpeg', [
-            '-probesize', '32',
-            '-analyzeduration', '0',
-            '-f', 'webm',
-            '-i', 'pipe:0',
-            '-f', 'mp3',
-            '-acodec', 'libmp3lame',
-            '-ar', '44100',
-            '-compression_level', '0', 
-            '-flush_packets', '1', 
-            '-'
-        ]);
         
-        // Output MP3 stream chunks
-        instance.stdout.on('data', chunk => {
+        currentInstance.child.stdout.removeAllListeners('data'); 
+
+        currentInstance.child.stdout.on('data', chunk => {
             let buffer = Buffer.from(chunk);
-            audioStream.write(buffer);
+            if (audioStream.writable) {
+                 audioStream.write(buffer);
+            }
+
             if(haClients.length) {
                 let haClientIds = haClients.filter(item => !!item.entity_id).map(item => item.entity_id.split('.')[item.entity_id.split('.').length -1]);
                 wss.clients
@@ -152,18 +219,26 @@ wss.on('connection', (ws, request) => {
                     });
             }
         });
-
-        instance.stderr.on('data', data => {
-            console.error('ffmpeg:', data.toString());
+        
+        // --- CRITICAL FIX: Signal PassThrough end when FFMPEG output is complete ---
+        currentInstance.child.stdout.removeAllListeners('end');
+        currentInstance.child.stdout.on('end', () => {
+            if (audioStream.writable) {
+                 console.log(`FFMPEG [PID ${currentInstance.pid}] stdout closed. Ending PassThrough stream.`);
+                audioStream.end();
+            }
         });
+        // --------------------------------------------------------------------------
 
-        instance.on('close', code => {
-            console.log('ffmpeg exited with code', code);
-            audioStream.end();
+        const onStreamClose = () => {
+            console.log(`PassThrough stream for ${client.wssId} closed.`);
             delete audioStreams[client.wssId];
-        });
+            currentInstance.child.stdout.removeAllListeners('data'); 
+            currentInstance.child.stdout.removeAllListeners('end'); // Clean up end listener too
+        };
 
-        return instance;
+        audioStream.on('close', onStreamClose);
+        // We only listen to 'close' now, 'end' will be triggered by audioStream.end()
     };
 
     const startSTT = (client) => {
@@ -172,23 +247,28 @@ wss.on('connection', (ws, request) => {
             return null;
         }
 
-        const wavChunks = [];
+        let currentInstance = sttFfmpegQueue.pop();
 
-        const instance = spawn('ffmpeg', [
-            '-f', 'webm',         // input format
-            '-i', 'pipe:0',       // read from stdin
-            '-ac', '1',           // mono
-            '-ar', '16000',       // 16kHz
-            '-f', 'wav',          // output format
-            'pipe:1'              // write to stdout
-        ]);
-        // Output MP3 stream chunks to console or broadcast
-        instance.stdout.on('data', chunk => {
-            wavChunks.push(chunk);
-        });
+        if (!currentInstance) {
+            console.warn("STT Pool empty. Synchronously creating a temporary instance.");
+            currentInstance = createSttFfmpegInstance();
+        }
 
-        instance.stdout.on('end', async () => {
-            const wavBuffer = Buffer.concat(wavChunks);
+        activeSttSessions.set(client.wssId, currentInstance);
+        currentInstance.active = true;
+        
+        console.log(`WS ${client.id} started STT session with FFMPEG [PID ${currentInstance.pid}]`);
+
+        process.nextTick(refillSttPool);
+        console.log(`Scheduled STT pool refill.`);
+
+        currentInstance.child.stdout.removeAllListeners('end'); 
+
+        currentInstance.child.stdout.on('end', async () => {
+            const wavBuffer = Buffer.concat(currentInstance.wavChunks);
+            
+            currentInstance.wavChunks.length = 0; 
+            
             postSTT(wavBuffer)
                 .then((res) => {
                     let message = res?.text?.trim();
@@ -206,69 +286,124 @@ wss.on('connection', (ws, request) => {
                 })
                 .catch(() => ws.send(encodeMessage({type: 'transcription', text: '[error transcribing audio]'}).toJSON()));
         });
-
-        instance.stderr.on('data', data => {
-            console.error('ffmpeg:', data.toString());
-        });
-
-        instance.on('close', code => {
-            console.log('ffmpeg exited with code', code);
-        });
-
-        return instance;
+        
+        return currentInstance;
     };
 
-    const killInstance = (ffmpeg) => {
-        ffmpeg.stdin.end();
-        ffmpeg.kill();
-        ffmpeg = null;
-    };
 
     const stop = () => {
-        if (ffmpegAudio) {
-            killInstance(ffmpegAudio);
+        // --- STT Cleanup ---
+        const sttInstanceToKill = activeSttSessions.get(clientSession.wssId);
+        
+        if (sttInstanceToKill) {
+            // 1. Signal EOF to FFMPEG STT instance input immediately
+            if (sttInstanceToKill.input.writable) {
+                console.log(`FFMPEG [PID ${sttInstanceToKill.pid}] STT input closed (EOF signal).`);
+                sttInstanceToKill.input.end();
+            }
+
+            sttInstanceToKill.active = false;
+            activeSttSessions.delete(clientSession.wssId);
+
+            // 2. Kill the instance after a short delay to ensure transcription output is complete
+            setTimeout(() => {
+                killInstance(sttInstanceToKill);
+            }, 500); 
         }
-        if (ffmpegSTT) {
-            killInstance(ffmpegSTT);
+
+        // --- Audio Cleanup ---
+        const audioInstanceToKill = activeFfmpegSessions.get(clientSession.wssId);
+        
+        if (audioInstanceToKill) {
+            // 1. Signal EOF to FFMPEG Audio instance input immediately
+            if (audioInstanceToKill.input.writable) {
+                console.log(`FFMPEG [PID ${audioInstanceToKill.pid}] Audio input closed (EOF signal).`);
+                audioInstanceToKill.input.end();
+            }
+
+            audioInstanceToKill.active = false;
+            activeFfmpegSessions.delete(clientSession.wssId);
+
+            console.log(`FFMPEG [PID ${audioInstanceToKill.pid}] released. Scheduling Audio cleanup in 5s...`);
+            
+            // 2. Schedule delayed cleanup: ONLY KILL THE PROCESS
+            // The audioStream.end() handled by FFMPEG's stdout 'end' event.
+            setTimeout(() => {
+                // IMPORTANT: We only kill the process here. The stream should be closed by FFMPEG itself.
+                const audioStream = audioStreams[clientSession.wssId];
+                if(audioStream && audioStream.writable) {
+                    // Forcefully terminate if FFMPEG failed to close its stdout for some reason
+                    // and the stream is still writable after 5s.
+                    console.warn(`[PID ${audioInstanceToKill.pid}] Forced audio stream closure before killing.`);
+                    audioStream.end(); 
+                }
+                killInstance(audioInstanceToKill);
+            }, 5000); 
         }
     };
 
+    // --- WebSocket Event Handlers ---
     ws.on('message', data => {
 
         const {header, payload} = getMessage(data);
+        const currentActiveAudioInstance = activeFfmpegSessions.get(clientSession.wssId);
+        const currentActiveSttInstance = activeSttSessions.get(clientSession.wssId);
       
         if(header.type === 'ping') {
             ws.send(encodeMessage({type: 'pong'}));
         }
         if(header.type === 'start') {
             setPlayers(header);
-            const client = new ClientSession({id, haUrl, haToken, audioHost});
-            console.log([`Client ID: ${client.id || 'Not Set'}`, `HA Url: ${client.haUrl}`, `Audio Host Url: ${client.audioHost}`, `HA Token present: ${client.haToken ? 'TRUE' : 'FALSE'}`].join(' | '));
-            ffmpegAudio = startAudio(client);
-            ffmpegSTT = startSTT(client);
+            console.log([`Client ID: ${clientSession.id || 'Not Set'}`, `HA Url: ${clientSession.haUrl}`, `Audio Host Url: ${clientSession.audioHost}`, `HA Token present: ${clientSession.haToken ? 'TRUE' : 'FALSE'}`].join(' | '));
+            startAudio(clientSession);
+            startSTT(clientSession);
         }
         if(header.type === 'stop') {
-            setTimeout(() => {
-                stop();
-            }, 5000); // delay stopping stream for 5 seconds to allow for stream latency
+            stop(); 
         }
         if(header.type === 'data') {
-            if (ffmpegAudio?.stdin?.writable) {
-                ffmpegAudio.stdin.write(payload);
+            if (currentActiveAudioInstance?.active && currentActiveAudioInstance.input.writable) {
+                currentActiveAudioInstance.input.write(payload);
             }
-            if (ffmpegSTT?.stdin?.writable) {
-                ffmpegSTT.stdin.write(payload);
+            if (currentActiveSttInstance?.active && currentActiveSttInstance.input.writable) {
+                currentActiveSttInstance.input.write(payload);
             }
         }
     });
 
     ws.on('close', (code, reason) => {
         console.log(`Client disconnected: ${code}, ${reason}`);
+        
+        const activeAudioInstance = activeFfmpegSessions.get(clientSession.wssId);
+        if (activeAudioInstance) {
+            killInstance(activeAudioInstance);
+            activeFfmpegSessions.delete(clientSession.wssId);
+        }
+        
+        const activeSttInstance = activeSttSessions.get(clientSession.wssId);
+        if (activeSttInstance) {
+            killInstance(activeSttInstance);
+            activeSttSessions.delete(clientSession.wssId);
+        }
+        
+        if (audioStreams[clientSession.wssId]) {
+             audioStreams[clientSession.wssId].end();
+        }
     });
 
-});
+};
+// --- END OF CONNECTION HANDLER FUNCTION ---
 
-// Only upgrade if request is for the correct path
+app.use(express.static('custom_components/ha_intercom/www'));
+
+const wss = new WebSocketServer({ noServer: true });
+
+wss.on('connection', handleConnection); 
+
+// --- EXECUTE POOL INITIALIZATION ---
+initializeFFmpegPools();
+// -----------------------------------
+
 server.on('upgrade', (request, socket, head) => {
   if (request.url.startsWith('/api/ha_intercom/ws')) {
     wss.handleUpgrade(request, socket, head, (ws) => {
@@ -298,5 +433,5 @@ app.get('/', (req, res) => {
 });
 
 server.listen(port, () => {
-  console.log(`WebSocket server listening on port ${port}`);
+    console.log(`WebSocket server listening on port ${port}`);
 });
