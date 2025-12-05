@@ -14,7 +14,7 @@ export const postAudio = (client, entities) => {
             `${client.haUrl}/api/services/media_player/play_media`,
             {
                 entity_id: entity.entity_id,
-                media_content_id: `${client.audioHost}/listen/${client.wssId}`,
+                media_content_id: `${client.audioHost}/listen/${client.wssId}/audio.mp3`,
                 media_content_type: "music"
             },
             {

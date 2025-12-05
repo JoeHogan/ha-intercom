@@ -248,7 +248,9 @@ wss.on('connection', (ws, request) => {
             ffmpegSTT = startSTT(client);
         }
         if(header.type === 'stop') {
-            stop();
+            setTimeout(() => {
+                stop();
+            }, 5000); // delay stopping stream for 5 seconds to allow for stream latency
         }
         if(header.type === 'data') {
             if (ffmpegAudio?.stdin?.writable) {
@@ -277,7 +279,7 @@ server.on('upgrade', (request, socket, head) => {
   }
 });
 
-app.get('/listen/:wssId', (req, res) => {
+app.get('/listen/:wssId/audio.mp3', (req, res) => {
     const wssId = req.params.wssId;
     const audioStream = audioStreams[wssId];
     if (audioStream) {
