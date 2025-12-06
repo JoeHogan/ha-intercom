@@ -162,3 +162,9 @@ services:
     - Optional
     - Used to prefix TTS notifications.
     - Can also be set in the HA-Intercom YAML config per device. Doing so will override this global value.
+- AUDIO_POOL_SIZE=2
+    - Optional pool size for warm FFMPEG audio instances
+    - Default: 2
+- STT_POOL_SIZE=2
+    - Optional pool size for warm FFMPEG stt instances
+    - Default: 1
