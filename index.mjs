@@ -24,14 +24,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Global Pools
-const ffmpegQueue = [];      // ✅ Audio Streaming (MP3) Pool - Restored
-const sttFfmpegQueue = [];   // ✅ STT Processing (WAV) Pool - Restored
+const ffmpegQueue = [];      // Audio Streaming Pool
+const sttFfmpegQueue = [];   // STT Processing Pool
 
 // Active Session Maps
 const activeFfmpegSessions = new Map(); // Maps wssId -> Audio Instance
 const activeSttSessions = new Map();    // Maps wssId -> STT Instance
 
-// ✅ SHARED TRACKING: Global tracking array for ALL active FFMPEG PIDs
+// SHARED TRACKING: Global tracking array for ALL active FFMPEG PIDs
 const activeFfmpegPIDs = []; 
 
 class ClientSession {
@@ -46,9 +46,9 @@ class ClientSession {
 
 const audioStreams = {};
 
-// --- GLOBAL FACTORY AND HELPER FUNCTIONS (DEFINED ONCE) ---
+// --- GLOBAL FACTORY AND HELPER FUNCTIONS ---
 
-// 🆕 NEW: Centralized Refill Check for both pools
+// Centralized Refill Check for both pools
 const checkAndRefillPools = () => {
     // Only proceed if NO FFMPEG processes are currently active (streaming or processing)
     if (activeFfmpegPIDs.length === 0) {
@@ -120,14 +120,14 @@ const killInstance = (ffmpeg) => {
         ffmpeg.child.kill('SIGKILL');
         console.log(`FFMPEG [PID ${ffmpeg.pid}] forcefully terminated.`);
         
-        // 🚨 CRITICAL: Remove PID from the global tracking array
+        // Remove PID from the global tracking array
         const pidIndex = activeFfmpegPIDs.indexOf(ffmpeg.pid);
         if (pidIndex > -1) {
             activeFfmpegPIDs.splice(pidIndex, 1);
             console.log(`PID ${ffmpeg.pid} removed from active tracking. Remaining PIDs: ${activeFfmpegPIDs.length}`);
         }
         
-        // 🚨 CRITICAL: Check and refill pools after killing an instance
+        // Check and refill pools after killing an instance
         checkAndRefillPools();
     }
 };
@@ -192,7 +192,7 @@ const handleConnection = (ws, request) => {
         alexaEntities = getEntitesByType(targets, 'alexa');
     };
 
-    // --- Core Logic Functions (defined within handler to access client-specific state) ---
+    // --- Core Logic Functions ---
 
     const startAudio = (clientSession) => { 
 
@@ -210,7 +210,7 @@ const handleConnection = (ws, request) => {
         activeFfmpegSessions.set(clientSession.wssId, currentInstance); 
         currentInstance.active = true;
         
-        // 🚨 ADDED: Add Audio PID to the shared tracking array
+        // Add Audio PID to the shared tracking array
         activeFfmpegPIDs.push(currentInstance.pid);
 
         console.log(`WS ${clientSession.wssId} started AUDIO session with FFMPEG [PID ${currentInstance.pid}]. Active PIDs: ${activeFfmpegPIDs.length}`);
@@ -273,7 +273,7 @@ const handleConnection = (ws, request) => {
             return null;
         }
 
-        let currentInstance = sttFfmpegQueue.pop(); // 💡 Get from dedicated STT pool
+        let currentInstance = sttFfmpegQueue.pop(); // Get from dedicated STT pool
 
         if (!currentInstance) {
             console.warn("STT Pool empty. Synchronously creating a temporary instance.");
@@ -283,12 +283,10 @@ const handleConnection = (ws, request) => {
         activeSttSessions.set(clientSession.wssId, currentInstance);
         currentInstance.active = true;
         
-        // 🚨 ADDED: Add STT PID to the shared tracking array
+        // Add STT PID to the shared tracking array
         activeFfmpegPIDs.push(currentInstance.pid);
         
         console.log(`WS ${clientSession.wssId} started STT session with FFMPEG [PID ${currentInstance.pid}]. Active PIDs: ${activeFfmpegPIDs.length}`);
-
-        // ❌ REMOVED: Refill logic is now in checkAndRefillPools() triggered by killInstance()
 
         currentInstance.child.stdout.removeAllListeners('end'); 
 
@@ -431,7 +429,7 @@ const handleConnection = (ws, request) => {
         if (!closedSession) return; 
         
         const activeAudioInstance = activeFfmpegSessions.get(closedSession.wssId);
-        // Note: killInstance handles removing the PID and checking for pool refill
+        // killInstance handles removing the PID and checking for pool refill
         if (activeAudioInstance) {
             killInstance(activeAudioInstance);
             activeFfmpegSessions.delete(closedSession.wssId);
@@ -439,7 +437,7 @@ const handleConnection = (ws, request) => {
         
         const activeSttInstance = activeSttSessions.get(closedSession.wssId);
         if (activeSttInstance) {
-            // Note: killInstance handles removing the PID and checking for pool refill
+            // killInstance handles removing the PID and checking for pool refill
             killInstance(activeSttInstance);
             activeSttSessions.delete(closedSession.wssId);
         }
