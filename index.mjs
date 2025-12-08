@@ -11,11 +11,67 @@ import { postSTT } from './server/stt.mjs';
 import { postAudio, postAlexaTTS, postTTS } from './server/ha.mjs';
 import { getMessage, encodeMessage } from './server/ws.mjs';
 
+export const AUDIO_CONFIG = {
+    mp3: {
+        contentType: 'audio/mpeg',
+        audioType: 'music', 
+        ffmpeg: [
+            // 1. Input Optimization (Minimize startup analysis and buffer size)
+            '-rtbufsize', '64k',
+            '-probesize', '32',
+            '-analyzeduration', '0',
+            '-f', 'webm',
+            '-i', 'pipe:0', 
+            
+            // 2. Transcoding Speed Optimization (The most critical flags)
+            '-tune', 'zerolatency', // Prioritizes speed and low delay
+            '-preset', 'ultrafast', // Fastest possible encoder setting
+            '-threads', '1',        // Reduces thread synchronization overhead
+            '-c:a', 'libmp3lame',
+            
+            // 3. Output Configuration
+            '-b:a', '64k',            // Lower bitrate minimizes data processed per second
+            '-compression_level', '0', // Ensures the fastest compression mode
+            
+            '-f', 'mp3', // Output format
+            '-ar', '44100',
+            '-flush_packets', '1', // Forces immediate packet output
+            '-'
+        ]
+    },
+    wav: {
+        contentType: 'audio/wav',
+        audioType: 'music',
+        ffmpeg: [
+            // 1. Input Optimization
+            // '-rtbufsize' should be set first to reserve buffer space immediately.
+            '-rtbufsize', '64k',
+            '-probesize', '32', 
+            '-analyzeduration', '0', 
+            '-f', 'webm',
+            '-i', 'pipe:0', 
+            
+            // 2. Output Configuration (WAV/PCM)
+            // Ensure no extra CPU-intensive flags are used.
+            '-acodec', 'pcm_s16le', // 16-bit signed Little-Endian PCM
+            '-f', 'wav',             // WAV container format
+            '-ar', '16000',          // Sample rate set to 16000 Hz (16kHz)
+            '-ac', '1',              // Mono audio output
+            
+            // 3. Flushing
+            // Forces the output to be written immediately to the pipe.
+            '-flush_packets', '1', 
+            '-' 
+        ]
+    }
+}
+
 const haUrl = process.env.HOME_ASSISTANT_URL;
 const token = process.env.HOME_ASSISTANT_ACCESS_TOKEN;
 const audioHost = process.env.AUDIO_HOST;
 const audioPoolSize = process.env.AUDIO_POOL_SIZE ? parseInt(process.env.AUDIO_POOL_SIZE) : 2; // For audio streaming
 const sttPoolSize = process.env.STT_POOL_SIZE ? parseInt(process.env.STT_POOL_SIZE) : 1; // For STT transcription
+const outputType = process.env.OUTPUT_TYPE && ['mp3', 'wav'].indexOf(process.env.OUTPUT_TYPE.toLowerCase().trim()) > -1 ? process.env.OUTPUT_TYPE.toLowerCase().trim() : 'mp3';
 
 const app = express();
 const server = http.createServer(app);
@@ -41,6 +97,7 @@ class ClientSession {
         this.haUrl = haUrl || config.haUrl;
         this.haToken = token || config.haToken;
         this.audioHost = audioHost || config.audioHost || `http://localhost:3001`;
+        this.outputType = outputType;
     }
 }
 
@@ -61,18 +118,8 @@ const checkAndRefillPools = () => {
 };
 
 const createFfmpegInstance = () => {
-    const child = spawn('ffmpeg', [
-        '-probesize', '32',
-        '-analyzeduration', '0',
-        '-f', 'webm',
-        '-i', 'pipe:0', 
-        '-f', 'mp3',
-        '-acodec', 'libmp3lame',
-        '-ar', '44100',
-        '-compression_level', '0', 
-        '-flush_packets', '1', 
-        '-'
-    ]);
+    const ffmpegOutputParams = AUDIO_CONFIG[outputType].ffmpeg;
+    const child = spawn('ffmpeg', ffmpegOutputParams);
     const inputPassThrough = new PassThrough();
     inputPassThrough.pipe(child.stdin);
 
@@ -192,11 +239,25 @@ const handleConnection = (ws, request) => {
         alexaEntities = getEntitesByType(targets, 'alexa');
     };
 
+    const messageWssClients = (message) => {
+        const haClients = audioEntities.filter(item => item.entity_id.startsWith('ha_client'));
+        if(haClients.length) {
+            let haClientIds = haClients.filter(item => !!item.entity_id).map(item => item.entity_id.split('.')[item.entity_id.split('.').length -1]);
+            wss.clients.forEach((item) => {
+                if(item.clientId && haClientIds.indexOf(item.clientId) > -1) {
+                    item.send(message);
+                }
+            });
+        }
+    }
+
     // --- Core Logic Functions ---
 
     const startAudio = (clientSession) => { 
 
-        if(!audioEntities.length) {
+        const audioClients = audioEntities.filter(item => !item.entity_id.startsWith('ha_client'));
+
+        if(!audioClients.length) {
             return null;
         }
 
@@ -219,10 +280,8 @@ const handleConnection = (ws, request) => {
         audioStreams[clientSession.wssId] = audioStream; 
         currentInstance.audioStream = audioStream;
 
-        console.log(`${clientSession.wssId}: Sending AUDIO (MP3) to ${audioEntities.map(({entity_id}) => entity_id).join(', ')}`);
+        console.log(`${clientSession.wssId}: .${clientSession.outputType} to ${audioEntities.map(({entity_id}) => entity_id).join(', ')}`);
 
-        let haClients = audioEntities.filter(item => item.entity_id.startsWith('ha_client'));
-        let audioClients = audioEntities.filter(item => !item.entity_id.startsWith('ha_client'));
         postAudio(clientSession, audioClients);
 
         currentInstance.child.stdout.removeAllListeners('data'); 
@@ -231,16 +290,6 @@ const handleConnection = (ws, request) => {
             let buffer = Buffer.from(chunk);
             if (currentInstance.audioStream?.writable) {
                 currentInstance.audioStream.write(buffer);
-            }
-
-            if(haClients.length) {
-                let haClientIds = haClients.filter(item => !!item.entity_id).map(item => item.entity_id.split('.')[item.entity_id.split('.').length -1]);
-                wss.clients
-                    .forEach((item) => {
-                        if(item.clientId && haClientIds.indexOf(item.clientId) > -1) {
-                            item.send(encodeMessage({type: 'audio', from: clientSession.id}, buffer).toJSON());
-                        }
-                    });
             }
         });
         
@@ -298,7 +347,7 @@ const handleConnection = (ws, request) => {
             postSTT(wavBuffer)
                 .then((res) => {
                     let message = res?.text?.trim();
-                    ws.send(encodeMessage({type: 'transcription', text: (message || '[no text]')}).toJSON());
+                    ws.send(encodeMessage({type: 'transcription', text: (message || '[no text]')}));
                     if (message) {
                         if(ttsEntities.length) {
                             console.log(`${clientSession.wssId}: Sending TTS to ${ttsEntities.map(({entity_id}) => entity_id).join(', ')}`);
@@ -310,14 +359,15 @@ const handleConnection = (ws, request) => {
                         }
                     }
                 })
-                .catch(() => ws.send(encodeMessage({type: 'transcription', text: '[error transcribing audio]'}).toJSON()));
+                .catch(() => ws.send(encodeMessage({type: 'transcription', text: '[error transcribing audio]'})));
         });
         
         return currentInstance;
     };
 
 
-    const stop = (clientSession) => { 
+    const stop = (clientSession) => {
+        messageWssClients(encodeMessage({type: 'stop'}));
         // --- STT Cleanup ---
         const sttInstanceToKill = activeSttSessions.get(clientSession.wssId);
         
@@ -389,7 +439,7 @@ const handleConnection = (ws, request) => {
             ws.currentTransactionSession = currentTransactionSession;
             
             setPlayers(header);
-            console.log([`Client ID: ${currentTransactionSession.id || 'Not Set'}`, `Session ID: ${currentTransactionSession.wssId}`, `HA Url: ${currentTransactionSession.haUrl}`, `Audio Host Url: ${currentTransactionSession.audioHost}`, `HA Token present: ${currentTransactionSession.haToken ? 'TRUE' : 'FALSE'}`].join(' | '));
+            console.log([`Client ID: ${currentTransactionSession.id || 'Not Set'}`, `Session ID: ${currentTransactionSession.wssId}`, `HA Url: ${currentTransactionSession.haUrl}`, `Audio Host Url: ${currentTransactionSession.audioHost}`, `Output Type: ${currentTransactionSession.outputType}`, `HA Token present: ${currentTransactionSession.haToken ? 'TRUE' : 'FALSE'}`].join(' | '));
             
             startAudio(currentTransactionSession); 
             startSTT(currentTransactionSession); 
@@ -404,10 +454,13 @@ const handleConnection = (ws, request) => {
             delete ws.currentTransactionSession;
         }
         
-        if(header.type === 'data') {
+        if(header.type === 'audio') {
             if (!currentTransactionSession) {
                 return;
             }
+            messageWssClients(encodeMessage({type: 'audio', from: currentTransactionSession.id}, payload));
+
+            // const haClients = audioEntities.filter(item => item.entity_id.startsWith('ha_client'));
 
             // Look up instances using the current unique wssId
             const currentActiveAudioInstance = activeFfmpegSessions.get(currentTransactionSession.wssId);
@@ -419,6 +472,15 @@ const handleConnection = (ws, request) => {
             if (currentActiveSttInstance?.active && currentActiveSttInstance.input.writable) {
                 currentActiveSttInstance.input.write(payload);
             }
+//             if(haClients.length) {
+//                 let haClientIds = haClients.filter(item => !!item.entity_id).map(item => item.entity_id.split('.')[item.entity_id.split('.').length -1]);
+//                 wss.clients
+//                     .forEach((item) => {
+//                         if(item.clientId && haClientIds.indexOf(item.clientId) > -1) {
+//                             item.send(encodeMessage({type: 'audio', from: currentTransactionSession.id}, payload));
+//                         }
+//                     });
+//             }
         }
     });
 
@@ -472,18 +534,20 @@ server.on('upgrade', (request, socket, head) => {
   }
 });
 
-app.get('/listen/:wssId/audio.mp3', (req, res) => {
-    const wssId = req.params.wssId;
-    const audioStream = audioStreams[wssId];
-    if (audioStream) {
-        console.log(`${wssId}: Streaming AUDIO (MP3) to client...`);
-        res.setHeader('Content-Type', 'audio/mpeg');
-        res.setHeader('Transfer-Encoding', 'chunked');
-        audioStream.pipe(res);
-    } else {
-        console.error(`${wssId}: Failed to stream AUDIO to client: Audio Stream not found.`);
-        res.status(400).send({message: `No audio stream available`});
-    }
+Object.keys(AUDIO_CONFIG).forEach(key => {
+    app.get(`/listen/:wssId/audio.${key}`, (req, res) => {
+        const wssId = req.params.wssId;
+        const audioStream = audioStreams[wssId];
+        if (audioStream) {
+            console.log(`${wssId}: Streaming AUDIO (.${key}) to client...`);
+            res.setHeader('Content-Type', `${AUDIO_CONFIG[key].contentType}`);
+            res.setHeader('Transfer-Encoding', 'chunked');
+            audioStream.pipe(res);
+        } else {
+            console.error(`${wssId}: Failed to stream AUDIO to client: Audio Stream not found.`);
+            res.status(400).send({message: `No audio stream available`});
+        }
+    });
 });
 
 app.get('/', (req, res) => {

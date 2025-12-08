@@ -168,3 +168,7 @@ services:
 - STT_POOL_SIZE=2
     - Optional pool size for warm FFMPEG stt instances
     - Default: 1
+- OUTPUT_TYPE=mp3
+    - Optional
+    - Options: mp3, wav
+    - Default: mp3
