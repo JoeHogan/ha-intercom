@@ -17,7 +17,7 @@ export const postAudio = (client, entities) => {
                 entity_id: entity.entity_id,
                 media_content_id: `${client.audioHost}/listen/${client.wssId}/audio.${client.outputType}`,
                 media_content_type: `${AUDIO_CONFIG[client.outputType]?.audioType || 'music'}`,
-                announce: true
+                announce: true,
             },
             {
                 httpsAgent,
