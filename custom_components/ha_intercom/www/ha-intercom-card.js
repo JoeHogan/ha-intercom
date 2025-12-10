@@ -93,6 +93,7 @@ export class HaIntercomCard extends LitElement {
     this.stopDelayTimeout = null;
     this.debounceTime = 500;
     this.recordInterval = 250;
+    this.stopDelay = 0;
   }
 
   render() {
@@ -165,24 +166,24 @@ export class HaIntercomCard extends LitElement {
 
     // Reliable Events: Block redundant events and track state
     if (e.type === 'touchstart') {
-        this.isTouchDown = true;
-        this.isMouseDown = false;
+      this.isTouchDown = true;
+      this.isMouseDown = false;
     } else if (e.type === 'mousedown') {
-        if (this.isTouchDown) return;
-        this.isMouseDown = true;
+      if (this.isTouchDown) return;
+      this.isMouseDown = true;
     }
 
     // Debounce: Clear any pending release timeout
     if (this.releaseTimeout) {
-        clearTimeout(this.releaseTimeout);
-        this.releaseTimeout = null;
-        if (this.listening) return; // Debounce successful, continue recording
+      clearTimeout(this.releaseTimeout);
+      this.releaseTimeout = null;
+      if (this.listening) return; // Debounce successful, continue recording
     }
 
     // Clear stop delay timeout if it was scheduled but a new click started
     if (this.stopDelayTimeout) {
-        clearTimeout(this.stopDelayTimeout);
-        this.stopDelayTimeout = null;
+      clearTimeout(this.stopDelayTimeout);
+      this.stopDelayTimeout = null;
     }
 
     if (this.listening) return;
@@ -191,16 +192,32 @@ export class HaIntercomCard extends LitElement {
     this.ws?.send(this.createMessage({ id: this.ID, type: 'start', target: this.TARGETS }));
     this.setIndicator(); // Set visual indicator to starting/ready
 
-    this.getDevices = navigator.mediaDevices.getUserMedia({ audio: true })
-      .then(stream => new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' }))
+    this.getDevices = navigator.mediaDevices.getUserMedia({
+        audio: {
+          latency: { ideal: 0.01 }, // Explicitly request ultra-low latency (e.g., 10ms ideal)
+          channelCount: 1,
+          noiseSuppression: true,
+          autoGainControl: true,
+          echoCancellation: true
+        },
+        video: false
+      })
+      .then(stream => {
+        this.setIndicator(true);
+        return new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' })
+      })
       .then(recorder => {
         if (recorder?.state === 'inactive') {
           recorder.ondataavailable = e => {
             if (e.data.size > 0) {
               e.data.arrayBuffer().then(buffer => {
-                this.ws?.send(this.createMessage({ type: 'data' }, buffer));
+                this.ws?.send(this.createMessage({ type: 'audio' }, buffer));
               });
             }
+          };
+          recorder.onstop = () => {
+            // 2. Send the 'stop' command to the backend
+            this.ws?.send(this.createMessage({ type: 'stop' }));
           };
           recorder.start(this.recordInterval);
         }
@@ -255,21 +272,18 @@ scheduleStopListening() {
         clearTimeout(this.stopDelayTimeout);
     }
 
-    // Delayed Stop: Schedule the actual stop with a 250ms delay
+    // Delayed Stop: Schedule the actual stop with a delay
     this.stopDelayTimeout = setTimeout(() => {
         this.stopListening();
         this.stopDelayTimeout = null;
-    }, this.recordInterval);
+    }, this.stopDelay);
 }
 
 // The final cleanup and 'stop' sender
 stopListening() {
     if (!this.listening) return;
 
-    // 1. Send the 'stop' command to the backend
-    this.ws?.send(this.createMessage({ type: 'stop' }));
-
-    // 2. Stop the local MediaRecorder and stream
+    // 1. Stop the local MediaRecorder and stream
     this.getDevices?.then(recorder => {
       if (recorder?.state !== 'inactive') {
         recorder.stream.getAudioTracks().forEach(track => track.stop());
@@ -291,19 +305,17 @@ stopListening() {
 
   // --- End of Debounce/Stop Logic ---
 
-  setIndicator() {
+  setIndicator(ready = false) {
     const indicator = this.shadowRoot.getElementById('mic-indicator');
-    indicator.classList.add('starting');
-    indicator.classList.remove('ready');
-    this.statusText = 'Microphone starting, please wait...';
-
-    this.indicatorTimeout = setTimeout(() => {
-      if (this.listening) {
+    if (ready && this.listening) {
         indicator.classList.remove('starting');
         indicator.classList.add('ready');
         this.statusText = 'Microphone is active and ready to record!';
-      }
-    }, 2000);
+    } else {
+      indicator.classList.add('starting');
+      indicator.classList.remove('ready');
+      this.statusText = 'Microphone starting, please wait...';
+    }
   }
 
   setLatestTranscription(message) {
@@ -317,7 +329,7 @@ stopListening() {
 
     this.mediaSource.addEventListener('sourceopen', () => {
         this.isSourceOpen = true;
-        const mimeType = 'audio/mpeg';
+        const mimeType = 'audio/webm;codecs=opus';
         if (!MediaSource.isTypeSupported(mimeType)) {
             console.error(`HA-Intercom: MIME type ${mimeType} is not supported on this device.`);
             return;
@@ -367,6 +379,8 @@ stopListening() {
       let { type, text } = header;
       if (type === 'transcription') {
         this.setLatestTranscription(text);
+      } else if (type === 'stop') {
+        this.setupAudioPlayback(); // reset audio
       } else if (type === 'audio') {
         if (this.isSourceOpen && this.sourceBuffer && !this.sourceBuffer.updating) {
             try {
