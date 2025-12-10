@@ -88,7 +88,6 @@ const sttFfmpegQueue = [];   // STT Processing Pool
 // Active Session Maps
 const activeAudioSessions = new Map(); // Maps wssId -> Audio Instance
 const activeSttSessions = new Map();  // Maps wssId -> STT Instance
-const audioStreams = new Map(); // Maps wssId -> HTTP Audio Stream
 
 // SHARED TRACKING: Global tracking array for ALL active FFMPEG PIDs
 const activeFfmpegPIDs = []; 
@@ -123,6 +122,8 @@ const createFfmpegInstance = () => {
     const child = spawn('ffmpeg', ffmpegOutputParams);
     const inputPassThrough = new PassThrough();
     inputPassThrough.pipe(child.stdin);
+    const outputPassThrough = new PassThrough();
+    child.stdout.pipe(outputPassThrough);
 
     child.stderr.on('data', data => {
         console.error(`FFMPEG [PID ${child.pid}] (Audio) stderr:`, data.toString());
@@ -131,84 +132,34 @@ const createFfmpegInstance = () => {
         console.error(`FFMPEG [PID ${child.pid}] (Audio) process error:`, err);
     });
 
-  return { child, input: inputPassThrough, pid: child.pid, active: false };
+  return { child, input: inputPassThrough, output: outputPassThrough, pid: child.pid, active: false };
 };
 
 const createSttFfmpegInstance = () => {
-  const child = spawn('ffmpeg', [
-    '-f', 'webm', 
-    '-i', 'pipe:0', 
-    '-ac', '1', 
-    '-ar', '16000', 
-    '-f', 'wav', 
-    'pipe:1' 
-  ]);
-  const inputPassThrough = new PassThrough();
-  inputPassThrough.pipe(child.stdin);
+    const child = spawn('ffmpeg', [
+        '-f', 'webm', 
+        '-i', 'pipe:0', 
+        '-ac', '1', 
+        '-ar', '16000', 
+        '-f', 'wav', 
+        'pipe:1' 
+    ]);
+    const inputPassThrough = new PassThrough();
+    inputPassThrough.pipe(child.stdin);
 
-  child.stderr.on('data', data => {
-    console.error(`FFMPEG [PID ${child.pid}] (STT) stderr:`, data.toString());
-  });
-  child.on('error', (err) => {
-    console.error(`FFMPEG [PID ${child.pid}] (STT) process error:`, err);
-  });
+    child.stderr.on('data', data => {
+        console.error(`FFMPEG [PID ${child.pid}] (STT) stderr:`, data.toString());
+    });
+    child.on('error', (err) => {
+        console.error(`FFMPEG [PID ${child.pid}] (STT) process error:`, err);
+    });
   
-  const wavChunks = [];
-  child.stdout.on('data', chunk => {
-    wavChunks.push(chunk);
-  });
+    const wavChunks = [];
+    child.stdout.on('data', chunk => {
+        wavChunks.push(chunk);
+    });
 
-  return { child, input: inputPassThrough, pid: child.pid, active: false, wavChunks };
-};
-
-const killFfmpegInstance = (wssId, activeFfmpegSessions, delay = stopDelay) => {
-
-    // let instanceToKill = activeFfmpegSessions.get(wssId);
-    // if (instanceToKill) {
-    //     instanceToKill.active = false;
-    //     if (instanceToKill.input?.writable) {
-    //         console.log(`FFMPEG [PID ${instanceToKill.pid}] input closed (EOF signal).`);
-    //         instanceToKill.input.stdin.end();
-    //     }
-    //     // if (instanceToKill.child?.stdin) {
-    //     //     console.log(`FFMPEG [PID ${instanceToKill.pid}] child input closed (EOF signal).`);
-    //     //     instanceToKill.child.stdin.end();
-    //     // }
-    // }
-            
-    setTimeout(() => {
-        const instanceToKill = activeFfmpegSessions.get(wssId);
-        if (instanceToKill) {
-            instanceToKill.active = false;
-            if (instanceToKill.input?.writable) {
-                console.log(`FFMPEG [PID ${instanceToKill.pid}] input closed (EOF signal).`);
-                instanceToKill.input.end();
-            }
-            if (instanceToKill.child?.stdin) {
-                console.log(`FFMPEG [PID ${instanceToKill.pid}] child input closed (EOF signal).`);
-                instanceToKill.child.stdin.end();
-            }
-
-            activeFfmpegSessions.delete(wssId);
-
-            instanceToKill.child.kill('SIGKILL');
-            console.log(`FFMPEG [PID ${instanceToKill.pid}] forcefully terminated.`);
-                
-            // Remove PID from the global tracking array
-            const pidIndex = activeFfmpegPIDs.indexOf(instanceToKill.pid);
-            if (pidIndex > -1) {
-                activeFfmpegPIDs.splice(pidIndex, 1);
-                console.log(`PID ${instanceToKill.pid} removed from active tracking. Remaining PIDs: ${activeFfmpegPIDs.length}`);
-            }
-            
-            if (instanceToKill.onStdoutEnd) {
-                instanceToKill.child.stdout.removeListener('end', instanceToKill.onStdoutEnd);
-                delete instanceToKill.onStdoutEnd;
-            }
-        }
-        // Check and refill pools after killing an instance
-        checkAndRefillPools();
-    }, delay);
+    return { child, input: inputPassThrough, pid: child.pid, active: false, wavChunks };
 };
 
 const refillFFmpegPool = () => {
@@ -239,19 +190,39 @@ const getEntitesByType = (targets, type) => {
     return targets.filter(item => item.type.toLowerCase().trim() === type);
 };
 
-const removeAudioStream = (wssId, delay = stopDelay) => {
-    const audioStream = audioStreams.get(wssId);
-    if(audioStream) {
-        if(audioStream.writable) {
+const killFfmpegInstance = (wssId, activeSessions, delay = stopDelay) => {
+    const activeSession = activeSessions.get(wssId);
+    if(activeSession) {
+        activeSession.active = false; // prevent writing to strean
+        if (activeSession.output?.writable) { // if has audio stream
             console.log(`Ending audio stream for ${wssId} and scheduling removal in ${delay}ms...`)
-            audioStream.end(); 
+            activeSession.output.end(); 
+        }
+        if (activeSession.input?.writable) {
+            console.log(`FFMPEG [PID ${activeSession.pid}] input closed (EOF signal).`);
+            activeSession.input.end();
+        }
+        if (activeSession.child?.stdin) {
+            console.log(`FFMPEG [PID ${activeSession.pid}] child input closed (EOF signal).`);
+            activeSession.child.stdin.end();
+        }
+
+        activeSession.child.kill('SIGKILL');
+        console.log(`FFMPEG [PID ${activeSession.pid}] forcefully terminated.`);
+
+        // Remove PID from the global tracking array
+        const pidIndex = activeFfmpegPIDs.indexOf(activeSession.pid);
+        if (pidIndex > -1) {
+            activeFfmpegPIDs.splice(pidIndex, 1);
+            console.log(`PID ${activeSession.pid} removed from active tracking. Remaining PIDs: ${activeFfmpegPIDs.length}`);
         }
         setTimeout(() => {
-            const audioStream = audioStreams.get(wssId);
-            if(audioStream) { // check again after delay
-                console.log(`Removing audio stream for ${wssId}`);
-                audioStreams.delete(wssId);
+            const activeSession = activeSessions.get(wssId);
+            if(activeSession) { // check again after delay
+                console.log(`Removing session ${wssId}`);
+                activeSessions.delete(wssId);
             }
+            checkAndRefillPools();
         }, delay);
     }
 };
@@ -307,7 +278,7 @@ const handleConnection = (ws, request) => {
         const audioClients = audioEntities.filter(item => !item.entity_id.startsWith('ha_client'));
 
         if(!audioClients.length) {
-        return null;
+            return null;
         }
 
         let currentInstance = ffmpegQueue.pop(); 
@@ -324,42 +295,11 @@ const handleConnection = (ws, request) => {
         activeFfmpegPIDs.push(currentInstance.pid);
 
         console.log(`WS ${clientSession.wssId} started AUDIO session with FFMPEG [PID ${currentInstance.pid}]. Active PIDs: ${activeFfmpegPIDs.length}`);
-        
-        const audioStream = new PassThrough();
-        audioStreams.set(clientSession.wssId, audioStream); 
 
         console.log(`${clientSession.wssId}: .${clientSession.outputType} to ${audioEntities.map(({entity_id}) => entity_id).join(', ')}`);
 
         postAudio(clientSession, audioClients); 
 
-        currentInstance.child.stdout.removeAllListeners('data'); 
-
-        currentInstance.child.stdout.on('data', chunk => {
-            let buffer = Buffer.from(chunk);
-            if (audioStream?.writable) {
-                audioStream.write(buffer);
-            }
-        });
-    
-        currentInstance.onStdoutEnd = () => {
-            if (audioStream?.writable) {
-                console.log(`FFMPEG [PID ${currentInstance.pid}] stdout closed. Ending PassThrough stream.`);
-                audioStream.end();
-            }
-        };
-        currentInstance.child.stdout.removeAllListeners('end');
-        currentInstance.child.stdout.on('end', currentInstance.onStdoutEnd); 
-
-        const onStreamClose = () => {
-            console.log(`PassThrough stream for ${clientSession.wssId} closed.`);
-            currentInstance.child.stdout.removeAllListeners('data');
-            if (currentInstance.onStdoutEnd) {
-                currentInstance.child.stdout.removeListener('end', currentInstance.onStdoutEnd);
-                delete currentInstance.onStdoutEnd;
-            }
-        };
-
-        audioStream.on('close', onStreamClose);
     };
 
     const startSTT = (clientSession) => { 
@@ -415,17 +355,13 @@ const handleConnection = (ws, request) => {
         
         messageWssClients(encodeMessage({type: 'stop'}));
 
-        console.log(`Scheduling audio processing stop in ${delay}ms...`);
+        console.log(`Cleaning up session ${wssId}`);
+
+        // --- Audio Cleanup ---
+        killFfmpegInstance(wssId, activeAudioSessions, delay);
 
         // --- STT Cleanup ---
         killFfmpegInstance(wssId, activeSttSessions, delay);
-        
-        // --- Audio Cleanup ---
-        killFfmpegInstance(wssId, activeAudioSessions, delay);
-        
-        // --- HTTP Audio Stream Cleanup ---
-
-        removeAudioStream(wssId, delay);
 
     };
 
@@ -520,15 +456,14 @@ server.on('upgrade', (request, socket, head) => {
 Object.keys(AUDIO_CONFIG).forEach(key => {
     app.get(`/listen/:wssId/audio.${key}`, (req, res) => {
       const wssId = req.params.wssId;
-      const audioStream = audioStreams.get(wssId);
-      if (audioStream) {
+      const activeAudioSession = activeAudioSessions.get(wssId);
+      if (activeAudioSession) {
         console.log(`${wssId}: Streaming AUDIO (.${key}) to client...`);
         res.setHeader('Content-Type', `${AUDIO_CONFIG[key].contentType}`);
         res.setHeader('Transfer-Encoding', 'chunked');
-        audioStream.pipe(res);
+        activeAudioSession.output.pipe(res);
         res.on('finish', () => {
             console.log(`Finished streaming audio to ${wssId}.`);
-            removeAudioStream(wssId, 0); // no need for delay here because all audio data has been sent to client
         });
       } else {
         console.error(`${wssId}: Failed to stream AUDIO to client: Audio Stream not found.`);

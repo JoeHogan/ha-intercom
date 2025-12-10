@@ -215,6 +215,10 @@ export class HaIntercomCard extends LitElement {
               });
             }
           };
+          recorder.onstop = () => {
+            // 2. Send the 'stop' command to the backend
+            this.ws?.send(this.createMessage({ type: 'stop' }));
+          };
           recorder.start(this.recordInterval);
         }
         return recorder;
@@ -279,10 +283,7 @@ scheduleStopListening() {
 stopListening() {
     if (!this.listening) return;
 
-    // 1. Send the 'stop' command to the backend
-    this.ws?.send(this.createMessage({ type: 'stop' }));
-
-    // 2. Stop the local MediaRecorder and stream
+    // 1. Stop the local MediaRecorder and stream
     this.getDevices?.then(recorder => {
       if (recorder?.state !== 'inactive') {
         recorder.stream.getAudioTracks().forEach(track => track.stop());
