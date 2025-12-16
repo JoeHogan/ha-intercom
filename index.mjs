@@ -10,6 +10,7 @@ import { spawn } from 'child_process';
 import { postSTT } from './server/stt.mjs';
 import { postAudio, postAlexaTTS, postTTS } from './server/ha.mjs';
 import { getMessage, encodeMessage } from './server/ws.mjs';
+import { addKnownClient, getKnownClients } from './server/config.mjs';
 
 export const AUDIO_CONFIG = {
     mp3: {
@@ -96,10 +97,12 @@ class ClientSession {
   constructor(config = {}) {
     this.wssId = uuidv4();
     this.id = config.id;
+    this.name = config.name;
+    this.target = config.target;
     this.haUrl = haUrl || config.haUrl;
     this.haToken = token || config.haToken;
     this.audioHost = audioHost || config.audioHost || `http://localhost:3001`;
-        this.outputType = outputType;
+    this.outputType = outputType;
   }
 }
 
@@ -185,27 +188,32 @@ const initializeFFmpegPools = () => {
     refillSttPool();
 };
 
-const getEntitesByType = (targets, type) => {
+const getEntitiesByType = (entities, type) => {
     type = (type || '').toLowerCase();
-    return targets.filter(item => item.type.toLowerCase().trim() === type);
+    return entities.filter(item => item.type.toLowerCase().trim() === type);
 };
 
 const killFfmpegInstance = (wssId, activeSessions, delay = stopDelay) => {
     const activeSession = activeSessions.get(wssId);
     if(activeSession) {
-        activeSession.active = false; // prevent writing to strean
-        if (activeSession.output?.writable) { // if has audio stream
-            console.log(`Ending audio stream for ${wssId} and scheduling removal in ${delay}ms...`)
-            activeSession.output.end(); 
+        activeSession.active = false; // prevent writing to stream
+        try {
+            if (activeSession.input?.writable) {
+                console.log(`FFMPEG [PID ${activeSession.pid}] input closed (EOF signal).`);
+                activeSession.input.end();
+            }
+        } catch(e) {
+            console.error(`Error cleaning up session ${wssId}: ${e}`);
         }
-        if (activeSession.input?.writable) {
-            console.log(`FFMPEG [PID ${activeSession.pid}] input closed (EOF signal).`);
-            activeSession.input.end();
-        }
-        if (activeSession.child?.stdin) {
-            console.log(`FFMPEG [PID ${activeSession.pid}] child input closed (EOF signal).`);
-            activeSession.child.stdin.end();
-        }
+        
+        // if (activeSession.output?.writable) { // if has audio stream
+        //     console.log(`Ending audio stream for ${wssId} and scheduling removal in ${delay}ms...`)
+        //     activeSession.output.end(); 
+        // }
+        // if (activeSession.child?.stdin) {
+        //     console.log(`FFMPEG [PID ${activeSession.pid}] child input closed (EOF signal).`);
+        //     activeSession.child.stdin.end();
+        // }
 
         activeSession.child.kill('SIGKILL');
         console.log(`FFMPEG [PID ${activeSession.pid}] forcefully terminated.`);
@@ -227,10 +235,13 @@ const killFfmpegInstance = (wssId, activeSessions, delay = stopDelay) => {
     }
 };
 
+const knownClients = await getKnownClients();
+
 // --- CONNECTION HANDLER FUNCTION ---
 const handleConnection = (ws, request) => {
     console.log('WebSocket client connected');
 
+    let videoEntities;
     let audioEntities;
     let ttsEntities;
     let alexaEntities;
@@ -240,31 +251,67 @@ const handleConnection = (ws, request) => {
     const haUrl = url.searchParams.get('haUrl');
     const haToken = url.searchParams.get('haToken');
     const audioHost = url.searchParams.get('audioHost');
-    ws.clientId = id; 
 
-    const setPlayers = (header) => {
-        let targets = (header.target || [])
+    const sendClients = () => {
+        let allClients = [];
+        wss.clients.forEach(ws => {
+            if(ws.client) {
+                allClients.push({...ws.capabilities, ...ws.client});
+            }
+        });
+            
+        wss.clients.forEach(ws => {
+            let clients = allClients
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .filter(client => client.entity_id !== ws.client?.entity_id)
+                .filter((client, i, arr) => arr.findIndex(ai => ai.entity_id === client.entity_id) === i);
+            ws.send(encodeMessage({type: 'clients', clients}));
+        });
+    };
+
+    const setClientConfig = (clientConfig) => {
+        ws.client = clientConfig;
+        ws.send(encodeMessage({type: 'config', ...clientConfig}));
+        sendClients();
+    }
+
+    if(knownClients[id]) {
+        setClientConfig(knownClients[id]);
+    } else {
+        ws.send(encodeMessage({type: 'setup'}));
+    }
+
+    const setPlayers = (entities = []) => {
+        entities
         .filter(item => !!item?.entity_id)
         .map(item => {
             let entity_id = item.entity_id.trim();
             let type = entity_id.startsWith('ha_client') ? 'audio' : item.type ? item.type.trim().toLowerCase() : 'tts';
             return {
-            type,
-            entity_id
+                type,
+                entity_id
             };
         })
         .filter((item, i, arr) => arr.findIndex(ai => ai.entity_id === item.entity_id) === i);
-        audioEntities = getEntitesByType(targets, 'audio');
-        ttsEntities = getEntitesByType(targets, 'tts');
-        alexaEntities = getEntitesByType(targets, 'alexa');
+        videoEntities = getEntitiesByType(entities, 'video');
+        audioEntities = getEntitiesByType(entities, 'audio');
+        ttsEntities = getEntitiesByType(entities, 'tts');
+        alexaEntities = getEntitiesByType(entities, 'alexa');
     };
 
-    const messageWssClients = (message) => {
-        const haClients = audioEntities.filter(item => item.entity_id.startsWith('ha_client'));
+    const encodeClientMessage = (header, data = null) => {
+        let clientInfo = ws.client || {};
+        const { name, entity_id } = clientInfo;
+        return encodeMessage({from: {name, entity_id}, ...header}, data);
+    }
+
+    const messageWssClients = (header, data = null) => {
+        const haClients = [...videoEntities, ...audioEntities].filter(item => item.entity_id.startsWith('ha_client'));
         if(haClients.length) {
-            let haClientIds = haClients.filter(item => !!item.entity_id).map(item => item.entity_id.split('.')[item.entity_id.split('.').length -1]);
+            const message = encodeClientMessage(header, data);
+            let haEntityIds = haClients.filter(item => !!item.entity_id).map(item => item.entity_id.split('.')[item.entity_id.split('.').length -1]);
             wss.clients.forEach((item) => {
-                if(item.clientId && haClientIds.indexOf(item.clientId) > -1) {
+                if(item.client?.entity_id && haEntityIds.indexOf(item.client.entity_id) > -1) {
                     item.send(message);
                 }
             });
@@ -333,7 +380,7 @@ const handleConnection = (ws, request) => {
             postSTT(wavBuffer)
                 .then((res) => {
                 let message = res?.text?.trim();
-                ws.send(encodeMessage({type: 'transcription', text: (message || '[no text]')}));
+                ws.send(encodeClientMessage({type: 'transcription', text: (message || '[no text]')}));
                 if (message) {
                     if(ttsEntities.length) {
                     console.log(`${clientSession.wssId}: Sending TTS to ${ttsEntities.map(({entity_id}) => entity_id).join(', ')}`);
@@ -345,17 +392,19 @@ const handleConnection = (ws, request) => {
                     }
                 }
                 })
-                .catch(() => ws.send(encodeMessage({type: 'transcription', text: '[error transcribing audio]'})));
+                .catch(() => ws.send(encodeClientMessage({type: 'transcription', text: '[error transcribing audio]'})));
         });
     
         return currentInstance;
     };
 
     const scheduleStop = (wssId, delay = stopDelay) => {
-        
-        messageWssClients(encodeMessage({type: 'stop'}));
 
         console.log(`Cleaning up session ${wssId}`);
+        
+        messageWssClients({type: 'stop'});
+
+        delete ws.currentTransactionSession;
 
         // --- Audio Cleanup ---
         killFfmpegInstance(wssId, activeAudioSessions, delay);
@@ -366,68 +415,98 @@ const handleConnection = (ws, request) => {
     };
 
     // --- WebSocket Event Handlers ---
-    ws.on('message', data => {
+    ws.on('message', async data => {
 
-        const {header, payload} = getMessage(data);
+        const { header, payload } = getMessage(data);
+        const { type, name, entity_id, target } = header; // note, the 'id' is set via querystring because it identifies all connected clients, not just the current broadcasting. 
 
         let currentTransactionSession = ws.currentTransactionSession;
         
-        if(header.type === 'ping') {
-        ws.send(encodeMessage({type: 'pong'}));
+        if(type === 'ping') {
+            ws.send(encodeClientMessage({type: 'pong'}));
+        }
+
+        if(type === 'config') {
+            console.log('Update Config...');
+            let updatedConfigItem = await addKnownClient(id, {name, entity_id});
+            knownClients[id] = updatedConfigItem;
+            setClientConfig(updatedConfigItem);
+        }
+
+        if(type === 'register') {
+            ws.capabilities = {
+                video: header.video || false
+            }
+            sendClients();
         }
             
-        if(header.type === 'start') {
+        if(type === 'start') {
             currentTransactionSession = new ClientSession({
                 id, 
+                name,
+                target,
                 haUrl, 
                 haToken, 
                 audioHost
             });
             ws.currentTransactionSession = currentTransactionSession;
                 
-            setPlayers(header);
+            setPlayers(target?.entities);
             console.log([`Client ID: ${currentTransactionSession.id || 'Not Set'}`, `Session ID: ${currentTransactionSession.wssId}`, `HA Url: ${currentTransactionSession.haUrl}`, `Audio Host Url: ${currentTransactionSession.audioHost}`, `Output Type: ${currentTransactionSession.outputType}`, `HA Token present: ${currentTransactionSession.haToken ? 'TRUE' : 'FALSE'}`].join(' | '));
         
             startAudio(currentTransactionSession); 
             startSTT(currentTransactionSession); 
         }
             
-        if(header.type === 'stop') {
+        if(type === 'stop') {
             if (!currentTransactionSession) {
                 console.warn("Received 'stop' without active session context.");
                 return;
             }
             scheduleStop(currentTransactionSession.wssId); 
-            delete ws.currentTransactionSession;
         }
             
-        if(header.type === 'audio') {
+        if(type === 'audio') {
             if (!currentTransactionSession) {
                 return;
             }
-            messageWssClients(encodeMessage({type: 'audio', from: currentTransactionSession.id}, payload));
+            messageWssClients({type: 'audio'}, payload);
 
             // Look up instances using the current unique wssId
             const currentActiveAudioInstance = activeAudioSessions.get(currentTransactionSession.wssId);
             const currentActiveSttInstance = activeSttSessions.get(currentTransactionSession.wssId);
 
-            if (currentActiveAudioInstance?.active && currentActiveAudioInstance.input.writable) {
-                currentActiveAudioInstance.input.write(payload);
+            try {
+                if (currentActiveAudioInstance?.active && currentActiveAudioInstance.input.writable) {
+                    currentActiveAudioInstance.input.write(payload);
+                }
+                if (currentActiveSttInstance?.active && currentActiveSttInstance.input.writable) {
+                    currentActiveSttInstance.input.write(payload);
+                }
+            } catch (e) {
+                console.log(`Error writing to input stream: ${e}`);
             }
-            if (currentActiveSttInstance?.active && currentActiveSttInstance.input.writable) {
-                currentActiveSttInstance.input.write(payload);
+        }
+
+        if(type === 'video') {
+            if (!currentTransactionSession) {
+                return;
             }
+            messageWssClients({type: 'video'}, payload);
+
+            // Currently only supports websocket clients...
         }
     });
 
     ws.on('close', (code, reason) => {
         console.log(`Client disconnected: ${code}, ${reason}`);
-    
+        
         const closedSession = ws.currentTransactionSession;
         if (closedSession) {
             scheduleStop(closedSession.wssId);
             delete ws.currentTransactionSession;
-        } 
+        }
+        sendClients();
     });
 
 };
