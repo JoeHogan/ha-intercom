@@ -467,7 +467,6 @@ export class HaIntercomCard extends LitElement {
     let micIcon = document.createElement('ha-icon');
     micIcon.setAttribute('icon', 'mdi:microphone');
     this.micButton.appendChild(micIcon);
-    this.micButtonReply = this.micButton.cloneNode(true);
     this.videoMediaTargets = [
       {
         source: 'incomingVideoMediaSource',
@@ -537,7 +536,19 @@ export class HaIntercomCard extends LitElement {
         </div>
       `;
     }
-    return this.CLIENT_ID && this.ENTITY_ID ? html`
+    if (!this.CLIENT_ID || !this.ENTITY_ID) {
+      return html`
+        <div class="loading-container">
+          <div class="loading-bar"></div>
+        </div>
+      `;
+    }
+    if (this.display === 'single') {
+      return html`
+        ${this.micButton}
+      `;
+    }
+    return html`
       <div id="media-container" class="${this.display} ${this.position} ${this.open ? 'open' : 'closed'}">
         <div class="toggle-menu">
           <button type="button" class="link" @click="${() => this.toggleConfig(true)}">
@@ -566,10 +577,10 @@ export class HaIntercomCard extends LitElement {
             return html`
               <div class="list-item target">
                 <div>${target.name || 'unknown'}</div>
-                ${target.video ? html`<button type="button" class="btn video" @click="${this.startListening.bind(this, target)}">
+                ${target.video ? html`<button type="button" class="btn video" @click="${this.startListening.bind(this, target, 'video')}">
                   <ha-icon icon="mdi:video"></ha-icon>
                 </button>` : null}
-                <button type="button" class="btn audio" @click="${this.startListening.bind(this, target)}">
+                <button type="button" class="btn audio" @click="${this.startListening.bind(this, target, 'audio')}">
                   <ha-icon icon="mdi:microphone"></ha-icon>
                 </button>
               </div>
@@ -639,12 +650,7 @@ export class HaIntercomCard extends LitElement {
           }
         </div>
       </div>
-    `
-      : html`
-        <div class="loading-container">
-          <div class="loading-bar"></div>
-        </div>
-      `;
+    `;
   }
 
   setConfig(config) {
@@ -659,7 +665,7 @@ export class HaIntercomCard extends LitElement {
         this.config = config;
         this.CLIENT_ID = storedConfig.clientId;
         this.TARGETS = this.config.targets ? Array.isArray(this.config.targets) ? this.config.targets : [this.config.targets] : [];
-        this.display = this.config.display && ['default', 'collapse'].indexOf(this.config.display.trim().toLowerCase()) > -1 ? this.config.display.trim().toLowerCase() : 'default';
+        this.display = this.config.display && ['default', 'collapse', 'single'].indexOf(this.config.display.trim().toLowerCase()) > -1 ? this.config.display.trim().toLowerCase() : 'default';
         this.position = this.config.position && ['fixed', 'inline'].indexOf(this.config.position.trim().toLowerCase()) > -1 ? this.config.position.trim().toLowerCase() : 'fixed';
         this.open = this.display === 'collapse' ? false : true;
         this.connectWebSocket();
@@ -677,7 +683,6 @@ export class HaIntercomCard extends LitElement {
     }
 
     this.bindButtonEvents(this.micButton);
-    this.bindButtonEvents(this.micButtonReply);
     this.resetVisuals(); // Initial state is reset
     this.setupAudioPlayback();
     this.setupVideoPlayback();
@@ -759,22 +764,20 @@ export class HaIntercomCard extends LitElement {
     btn.addEventListener('click', this.checkCancelable.bind(this), { passive: false });
 
     // touch events
-    btn.addEventListener('touchstart', this.toggleListening.bind(this), { passive: false });
-    // btn.addEventListener('touchend', this.handleButtonRelease.bind(this), { passive: false });
-    // btn.addEventListener('touchcancel', this.handleButtonRelease.bind(this), { passive: false });
+    btn.addEventListener('touchstart', this.startListeningSingle.bind(this), { passive: false });
+    btn.addEventListener('touchcancel', this.handleButtonRelease.bind(this), { passive: false });
+    btn.addEventListener('touchend', this.handleButtonRelease.bind(this), { passive: false });
 
     // mouse events
-    btn.addEventListener('mousedown', this.toggleListening.bind(this), { passive: false });
-    // btn.addEventListener('mouseup', this.handleButtonRelease.bind(this), { passive: false });
-    // btn.addEventListener('mouseleave', this.handleButtonRelease.bind(this), { passive: false });
+    btn.addEventListener('mousedown', this.startListeningSingle.bind(this), { passive: false });
+    btn.addEventListener('mouseup', this.handleButtonRelease.bind(this), { passive: false });
+    btn.addEventListener('mouseleave', this.handleButtonRelease.bind(this), { passive: false });
 
   }
 
   // Resets the visual indicator and status text to the default state
   resetVisuals() {
-    let btn = this.incomingMedia ? this.micButtonReply : this.micButton;
-    if (this.indicatorTimeout) clearTimeout(this.indicatorTimeout);
-    btn.classList.remove('starting', 'ready');
+    let btn = this.micButton;
     btn.classList.remove('starting', 'ready');
     this.statusText = 'Microphone not active';
   }
@@ -819,6 +822,25 @@ export class HaIntercomCard extends LitElement {
     this.startListening({ name, entity_id, entities: [{ entity_id: `ha_client.${entity_id}`, type }] }, type);
   }
 
+  startListeningSingle(e) {
+    this.checkCancelable(e);
+
+    // Reliable Events: Block redundant events and track state
+    if (e.type === 'touchstart') {
+      this.isTouchDown = true;
+      this.isMouseDown = false;
+    } else if (e.type === 'mousedown') {
+      if (this.isTouchDown) return;
+      this.isMouseDown = true;
+    }
+    let target = this.TARGETS.length ? this.TARGETS[0] : null;
+    if (!target) {
+      console.error(`HA-Intercom: You must define at least one target entity.`);
+      return;
+    }
+    this.startListening(target, 'audio');
+  }
+
   startListening(target, mediaType = 'audio') {
     if (this.outgoingMedia) return;
 
@@ -856,7 +878,11 @@ export class HaIntercomCard extends LitElement {
             if (e.data.size > 0) {
               e.data.arrayBuffer().then(buffer => {
                 if (mediaType === 'video') {
-                  this.outgoingVideoSourceBuffer?.appendBuffer(buffer);
+                  try {
+                    this.outgoingVideoSourceBuffer?.appendBuffer(buffer);
+                  } catch (e) {
+                    console.error(`HA-Intercom: ${e}`);
+                  }
                 }
                 this.ws?.send(this.createMessage({ type: mediaType === 'video' ? 'video' : 'audio' }, buffer));
               });
@@ -938,7 +964,6 @@ stopListening() {
     });
 
     // 3. Clear all related timers (visuals already reset by scheduleStopListening)
-    if (this.indicatorTimeout) clearTimeout(this.indicatorTimeout);
     if (this.releaseTimeout) clearTimeout(this.releaseTimeout);
     if (this.stopDelayTimeout) clearTimeout(this.stopDelayTimeout);
 
@@ -957,7 +982,7 @@ stopListening() {
   // --- End of Debounce/Stop Logic ---
 
   setIndicator(ready = false) {
-    let btn = this.incomingMedia ? this.micButtonReply : this.micButton;
+    let btn = this.micButton;
       if (ready && this.outgoingMedia) {
           btn.classList.remove('starting');
           btn.classList.add('ready');
@@ -1190,6 +1215,39 @@ stopListening() {
           clearInterval(this.pingInterval);
           this.pingInterval = null;
       }
+  }
+
+  // Handles the first stage of release (debounce)
+  handleButtonRelease(e) {
+    if (!this.outgoingMedia) return;
+    this.checkCancelable(e);
+
+    // Reliable Events: Block redundant release events
+    if (e.type === 'touchend' || e.type === 'touchcancel') {
+        if (!this.isTouchDown) return;
+        this.isTouchDown = false;
+    } else if (e.type === 'mouseup' || e.type === 'mouseleave') {
+        if (!this.isMouseDown) return;
+        if (this.isTouchDown) return;
+        this.isMouseDown = false;
+    }
+
+    // If both flags are clear, but we are still listening, schedule the stop process
+    if (!this.isMouseDown && !this.isTouchDown && this.outgoingMedia) {
+
+        // Clear any existing release timeout to prevent double scheduling
+        if (this.releaseTimeout) {
+            clearTimeout(this.releaseTimeout);
+        }
+
+        // Debounce: Start the release timer (500ms)
+        this.releaseTimeout = setTimeout(() => {
+            this.releaseTimeout = null;
+
+            // Debounce period expired: reset visuals and schedule stop command
+            this.scheduleStopListening();
+        }, this.debounceTime);
+    }
   }
 
 }
