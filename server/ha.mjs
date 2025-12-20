@@ -27,7 +27,7 @@ export const postAudio = (client, entities) => {
                 }
             }
         )
-        .then(() => {
+        .then(() => { // if POST is successful but endpoint is never called, make sure media player entity is online
             console.log(`streming to media player ${entity.entity_id}`);
         }).catch((err) => {
             console.error(`error streaming to media player ${entity.entity_id}: ${err}`);

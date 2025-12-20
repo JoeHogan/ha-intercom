@@ -41,6 +41,16 @@ export async function addKnownClient(id, {name, entity_id}) {
     return clients[id];
 }
 
+export async function removeKnownClient(id) {
+    const clients = await updateConfig('clients', (clients = {}) => {
+        if(clients[id]) {
+          delete clients[id];
+        }
+        return clients;
+    });
+    return true;
+}
+
 export async function getKnownClients() {
     let config = await getConfig();
     return config.clients || {};

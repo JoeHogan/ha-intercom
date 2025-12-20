@@ -10,7 +10,7 @@ import { spawn } from 'child_process';
 import { postSTT } from './server/stt.mjs';
 import { postAudio, postAlexaTTS, postTTS } from './server/ha.mjs';
 import { getMessage, encodeMessage } from './server/ws.mjs';
-import { addKnownClient, getKnownClients } from './server/config.mjs';
+import { addKnownClient, getKnownClients, removeKnownClient } from './server/config.mjs';
 
 export const AUDIO_CONFIG = {
     mp3: {
@@ -241,10 +241,10 @@ const knownClients = await getKnownClients();
 const handleConnection = (ws, request) => {
     console.log('WebSocket client connected');
 
-    let videoEntities;
-    let audioEntities;
-    let ttsEntities;
-    let alexaEntities;
+    let videoEntities = [];
+    let audioEntities = [];
+    let ttsEntities = [];
+    let alexaEntities = [];
     
     const url = new URL(request.url, `http://localhost:${port}`);
     const id = url.searchParams.get('id');
@@ -301,8 +301,10 @@ const handleConnection = (ws, request) => {
 
     const encodeClientMessage = (header, data = null) => {
         let clientInfo = ws.client || {};
+        let sessionInfo = ws.currentTransactionSession || {};
         const { name, entity_id } = clientInfo;
-        return encodeMessage({from: {name, entity_id}, ...header}, data);
+        const { wssId } = sessionInfo;
+        return encodeMessage({from: {name, entity_id}, wssId, ...header}, data);
     }
 
     const messageWssClients = (header, data = null) => {
@@ -404,7 +406,9 @@ const handleConnection = (ws, request) => {
         
         messageWssClients({type: 'stop'});
 
-        delete ws.currentTransactionSession;
+        if(ws.currentTransactionSession) {
+            delete ws.currentTransactionSession;
+        }
 
         // --- Audio Cleanup ---
         killFfmpegInstance(wssId, activeAudioSessions, delay);
@@ -433,6 +437,14 @@ const handleConnection = (ws, request) => {
             setClientConfig(updatedConfigItem);
         }
 
+        if(type === 'reset') {
+            console.log('Reset Config...');
+            let updated = await removeKnownClient(id, {name, entity_id});
+            if(knownClients[id]) {
+                delete knownClients[id];
+            }
+        }
+
         if(type === 'register') {
             ws.capabilities = {
                 video: header.video || false
@@ -459,6 +471,14 @@ const handleConnection = (ws, request) => {
         }
             
         if(type === 'stop') {
+            if(header.wssId) { // stop sent with specific wssId, likely from recieving client
+                wss.clients.forEach(wsClient => {
+                    if(wsClient.currentTransactionSession?.wssId === header.wssId) {
+                        wsClient.send(encodeMessage({from: {name: header.name, entity_id: header.entity_id}, type: 'stop'}));
+                    }
+                });
+                return;
+            }
             if (!currentTransactionSession) {
                 console.warn("Received 'stop' without active session context.");
                 return;

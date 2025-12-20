@@ -22,6 +22,24 @@ export class HaIntercomCard extends LitElement {
       box-shadow: 0 0 10px rgba(0, 0, 255, 0.5);
     }
 
+    .btn-normal {
+      min-width: 100px;
+      height: 30px;
+      border-radius: 4px;
+      border: 0;
+      background-color: rgba(0, 100, 150, 0.8);
+      color: white;
+      margin: 0 auto;
+      box-shadow: 0 0 10px rgba(0, 0, 255, 0.5);
+    }
+
+    button.link {
+      color: rgba(0, 100, 150, 1);
+      border: 0;
+      background: none;
+      cursor: pointer;
+    }
+
     .mic-indicator {
       display: block;
       animation: none;
@@ -40,85 +58,6 @@ export class HaIntercomCard extends LitElement {
       animation: none;
       background-color: green;
       box-shadow: 0 0 15px rgba(0, 255, 0, 0.8);
-    }
-
-    #media-container {
-      position: relative;
-      overflow: visible;
-    }
-
-    .send-message-container {
-    }
-
-    .send-message-container.inactive {
-    }
-
-    #incoming-message-container {
-      visibility: hidden;
-      position: absolute;
-      background: white;
-      z-index: 1;
-      overflow: hidden;
-      background-color: black;
-      color: white;
-      .actions {
-        position: absolute;
-        top: 25px;
-        right: 5px;
-        z-index: 1;
-        button {
-          margin-bottom: 10px;
-        }
-      }
-
-      .header {
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        background: rgba(0, 0, 0, 0.6);
-        color: white;
-        height: 20px;
-      }
-
-      video {
-        width: 100%;
-      }
-    }
-
-    #incoming-message-container.inline {
-      top: 0;
-      left: 0;
-      min-width: 100%;
-      min-height: 100%;
-    }
-
-    #incoming-message-container.fixed {
-        position: fixed;
-        width: 25%;
-        min-width: 300px;
-        bottom: 10px;
-        right: 10px;
-    }
-
-    #incoming-message-container.active {
-      visibility: visible;
-    }
-
-    #incoming-message-container #av-container {
-      width: 100%;
-      aspect-ratio: 16 / 9;
-      overflow: hidden;
-    }
-
-    .img-container {
-      position: absolute;
-      top: 40px;
-      left: 0;
-      right: 0;
-      > img {
-        width: 30%;
-      }
     }
 
     .name {
@@ -141,19 +80,297 @@ export class HaIntercomCard extends LitElement {
       margin-right: auto;
     }
 
-    .list-item {
-      display: flex;
-      align-items: center;
+    #current-config {
       padding: 10px;
-      > div:first-child {
-        flex-grow: 1;
+      .details {
+        text-align: left;
+        margin-bottom: 20px;
+      }
+      .actions {
         text-align: left;
       }
-      > * + * {
+      .reset-config {
+        background-color: rgba(255, 0, 0, 0.8);
         margin-left: 10px;
       }
-      + .list-item {
-        border-top: 1px solid #ccc;
+    }
+
+    #media-container {
+      position: relative;
+      overflow: visible;
+
+      .toggle-menu {
+        display: none;
+        align-items: center;
+        padding: 10px;
+        > .details {
+          flex-grow: 1;
+        }
+      }
+
+      .message-container {
+
+        position: absolute;
+        height: 0;
+        width: 0;
+        background: white;
+        z-index: 10;
+        overflow: hidden;
+        background-color: black;
+        color: white;
+
+        &.open {
+          position: relative;
+          height: unset;
+          width: 100%;
+          margin: auto;
+          z-index: 11;
+
+          &.fullscreen {
+
+            position: fixed;
+            height: 100%;
+            width: 100%;
+            bottom: 0;
+            right: 0;
+            z-index: 12;
+
+            .av-container {
+              position: relative;
+              height: 100%;
+              width: 100%;
+              height: 100%;
+
+              video {
+                position: absolute;
+                min-width: 100%;
+                min-height: 100%;
+                transform: translate(-50%, -50%);
+                left: 50%;
+                top: 50%;
+                object-fit: cover;
+
+                + video {
+                  aspect-ratio: 16 / 9;
+                  width: 25%;
+                  min-width: unset;
+                  min-height: unset;
+                  top: unset;
+                  transform: unset;
+                  object-fit: unset;
+                  bottom: 0;
+                  z-index: 12;
+                  left: 0;
+                  border-right: 1px solid white;
+                  border-top: 1px solid white;
+                  border-top-right-radius: 6px;
+                }
+              }
+            }
+
+            .header, .footer {
+              z-index: 11;
+            }
+          }
+          .actions {
+            z-index: 12;
+          }
+        }
+
+        .actions {
+          position: absolute;
+          top: 5px;
+          z-index: 11;
+
+          &.left {
+            left: 5px;
+          }
+
+          &.right {
+            right: 5px;
+          }
+
+          button {
+            display: block;
+            margin-bottom: 10px;
+            background-color: rgba(255, 255, 255, 0.25);
+          }
+        }
+
+        .header {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          background: rgba(0, 0, 0, 0.6);
+          color: white;
+          height: 20px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .footer {
+          position: absolute;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          background: rgba(0, 0, 0, 0.6);
+          color: white;
+          height: 20px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .av-container {
+          width: 100%;
+          height: 100%;
+          overflow: hidden;
+
+          video {
+            width: 100%;
+
+            + video {
+                aspect-ratio: 16 / 9;
+                width: 25%;
+                position: absolute;
+                bottom: 0;
+                z-index: 12;
+                left: 0;
+                border-right: 1px solid white;
+                border-top: 1px solid white;
+                border-top-right-radius: 6px;
+              }
+          }
+        }
+      }
+
+      &.fixed {
+        .message-container {
+          &.open {
+            position: fixed;
+            height: unset;
+            width: 25%;
+            min-width: 300px;
+            bottom: 10px;
+            right: 10px;
+            aspect-ratio: 16 / 9;
+          }
+          &.fullscreen {
+            position: fixed;
+            height: 100%;
+            width: 100%;
+            bottom: 0;
+            right: 0;
+            z-index: 12;
+          }
+        }
+      }
+
+      &.collapse {
+
+        .toggle-menu {
+          display: flex;
+        }
+
+        &.open {
+
+          .toggle-menu {
+            .btn {
+              background-color: rgba(0, 0, 0, 0.5);
+            }
+          }
+
+        }
+
+        &.closed {
+
+          .client-list {
+            position: absolute;
+            height: 0;
+            width: 0;
+            overflow: hidden;
+          }
+
+        }
+
+      }
+
+      .client-list {
+        .list-item {
+          display: flex;
+          align-items: center;
+          padding: 10px;
+          > div:first-child {
+            flex-grow: 1;
+            text-align: left;
+          }
+          > * + * {
+            margin-left: 10px;
+          }
+          + .list-item {
+            border-top: 1px solid #ccc;
+          }
+        }
+      }
+
+    }
+
+    form {
+      min-width: 200px;
+      width: 50%;
+      padding: 5px 10px;
+
+      .actions {
+        text-align: left;
+      }
+    }
+
+    .form-control {
+      text-align: left;
+      width: 100%;
+      margin-bottom: 20px;
+
+      label {
+        display: block;
+      }
+
+      input {
+        padding: 6px;
+        width: calc(100% - 16px);
+        display: block;
+      }
+
+      .hint {
+        margin-top: 5px;
+        color: gray;
+        font-size: 0.9em;
+      }
+    }
+
+    .loading-container {
+      width: 100%;
+      height: 4px;
+      background-color: #e0e0e0;
+      position: relative;
+      overflow: hidden;
+      margin: 10px;
+
+      .loading-bar {
+        width: 50%;
+        height: 100%;
+        background-color: rgba(0, 100, 150, 1);
+        position: absolute;
+        left: -50%;
+        animation: loading 1.5s infinite ease-in-out;
+      }
+    }
+
+    @keyframes loading {
+      0% {
+        transform: translateX(0);
+      }
+      100% {
+        transform: translateX(300%); /* Moves it across the 100% width parent */
       }
     }
 
@@ -170,10 +387,13 @@ export class HaIntercomCard extends LitElement {
       config: {},
       statusText: { type: String },
       latestTranscription: { type: String },
-      activeMediaElement: { type: Object },
       invalidConfig: { type: Object },
       displaySetup: { type: Boolean },
-      listening: { type: Boolean },
+      displayConfig: { type: Boolean },
+      open: { type: Boolean },
+      fullscreen: { type: Boolean },
+      outgoingMedia: { type: Object },
+      incomingMedia: { type: Object },
       CLIENT_ID: { type: String },
       ENTITY_ID: { type: String },
       NAME: { type: String },
@@ -188,16 +408,17 @@ export class HaIntercomCard extends LitElement {
     this.isTouchDown = false;
     this.statusText = 'Microphone not active';
     this.latestTranscription = '';
-    this.activeMediaElement = null;
+    this.incomingMedia = null;
+    this.outgoingMedia = null;
     this.invalidConfig = null;
     this.displaySetup = false;
+    this.displayConfig = false;
     this.CLIENTS = [];
     this.TARGETS = [];
     this.ws = null;
     this.retryDelay = 2000;
     this.connectTimeout = 5000;
     this.isManuallyClosed = false;
-    this.listening = false;
     this.indicatorTimeout = null;
     this.getDevices = null;
     this.pingInterval = null;
@@ -207,12 +428,21 @@ export class HaIntercomCard extends LitElement {
     this.debounceTime = 500;
     this.recordInterval = 250;
     this.stopDelay = 250;
+    this.position = null;
+    this.open = true;
+    this.fullscreen = false;
+    this.blockedSessions = [];
     this.hideActiveElementDelay = 5000;
     this.audioElement = document.createElement('audio');
-    this.videoElement = document.createElement('video');
-    this.videoElement.autoplay = true;
-    this.videoElement.playsinline = true;
-    this.videoElement.setAttribute('playsinline', '');
+    this.incomingVideoElement = document.createElement('video');
+    this.incomingVideoElement.autoplay = true;
+    this.incomingVideoElement.playsinline = true;
+    this.incomingVideoElement.setAttribute('playsinline', '');
+    this.outgoingVideoElement = document.createElement('video');
+    this.outgoingVideoElement.autoplay = true;
+    this.outgoingVideoElement.playsinline = true;
+    this.outgoingVideoElement.setAttribute('playsinline', '');
+    this.outgoingVideoElement.muted = true;
     this.micButton = document.createElement('button');
     this.micButton.classList.add('btn');
     this.micButton.classList.add('mic-indicator');
@@ -220,6 +450,20 @@ export class HaIntercomCard extends LitElement {
     micIcon.setAttribute('icon', 'mdi:microphone');
     this.micButton.appendChild(micIcon);
     this.micButtonReply = this.micButton.cloneNode(true);
+    this.videoMediaTargets = [
+      {
+        source: 'incomingVideoMediaSource',
+        element: 'incomingVideoElement',
+        isOpen: 'isIncomingVideoSourceOpen',
+        buffer: 'incomingVideoSourceBuffer'
+      },
+      {
+        source: 'outgoingVideoMediaSource',
+        element: 'outgoingVideoElement',
+        isOpen: 'isOutgoingVideoSourceOpen',
+        buffer: 'outgoingVideoSourceBuffer'
+      },
+    ];
   }
 
   render() {
@@ -237,97 +481,152 @@ export class HaIntercomCard extends LitElement {
     if (this.displaySetup) {
       return html`
         <form @submit=${this.updateConfig}>
-          <div>
+          <h3>HA-Intercom Client Configuration</h3>
+          <div class="form-control">
             <label for="name">Client Name</label>
             <input id="name" type="text" name="name" required placeholder="Enter your client name..." />
+            <div class="hint">Example: 'Bob's Phone'</div>
           </div>
-          <div>
+          <div class="form-control">
             <label for="entity_id">Entity ID</label>
             <input id="entity_id" type="text" name="entity_id" required placeholder="Enter your Entity ID..." />
+            <div class="hint">Each instance of HA-Intercom on each device should have a unique Entity ID</div>
+            <div class="hint">Example: 'Bobs_Phone_Client_1'</div>
           </div>
-          <button class="update-config" type="submit">
-              Update Config
-          </button>
+          <div class="actions">
+            <button class="btn-normal update-config" type="submit">
+                Update Config
+            </button>
+          </div>
         </div>
       `;
     }
-    if (this.listening) {
+    if (this.displayConfig) {
       return html`
-        <div class="listening">
-          ${this.micButton}
+        <div id="current-config">
+          <div class="details">
+            <div>Name: ${this.NAME}</div>
+            <div>Entity ID: ${this.ENTITY_ID}</div>
+          </div>
+          <div class="actions">
+            <button class="btn-normal cancel" @click="${() => this.toggleConfig(false)}">
+                Cancel
+            </button>
+            <button class="btn-normal reset-config" @click="${() => this.resetConfig()}">
+                Reset Config
+            </button>
+          </div>
         </div>
       `;
     }
     return this.CLIENT_ID && this.ENTITY_ID ? html`
-      <div id="media-container">
-        ${this.CLIENTS.map(client => {
-          return html`
-            <div class="list-item client">
-              <div>${client.name || client.clientId || 'unknown'}</div>
-              ${client.video ? html`<button type="button" class="btn video" @click="${this.startListeningClient.bind(this, client, 'video')}">
-                <ha-icon icon="mdi:video"></ha-icon>
-              </button>` : null}
-              <button type="button" class="btn audio" @click="${this.startListeningClient.bind(this, client, 'audio')}">
-                <ha-icon icon="mdi:microphone"></ha-icon>
-              </button>
-              <button type="button" class="btn call" @click="${this.startListeningClient.bind(this, client, 'call')}">
-                <ha-icon icon="mdi:phone"></ha-icon>
-              </button>
-            </div>
-          `
-        })}
-        ${this.TARGETS.map(target => {
-          return html`
-            <div class="list-item target">
-              <div>${target.name || 'unknown'}</div>
-              ${target.video ? html`<button type="button" class="btn video" @click="${this.startListening.bind(this, target)}">
-                <ha-icon icon="mdi:video"></ha-icon>
-              </button>` : null}
-              <button type="button" class="btn audio" @click="${this.startListening.bind(this, target)}">
-                <ha-icon icon="mdi:microphone"></ha-icon>
-              </button>
-            </div>
-          `
-        })}
-        <div style="display: none" class="send-message-container ${this.activeMediaElement ? 'inactive' : 'active'}">
-          ${this.micButton}
+      <div id="media-container" class="${this.display} ${this.position} ${this.open ? 'open' : 'closed'}">
+        <div class="toggle-menu">
+          <button type="button" class="link" @click="${() => this.toggleConfig(true)}">
+            ${this.NAME}
+          </button>
+          <div class="details">${this.CLIENTS.length + this.TARGETS.length} Intercom Clients</div>
+          <button type="button" class="btn" @click="${() => this.toggleMenu()}">
+            ${this.open ? html`<ha-icon icon="mdi:close"></ha-icon>` : html`<ha-icon icon="mdi:message"></ha-icon>`}
+          </button>
+        </div>
+        <div class="client-list">
+          ${this.CLIENTS.map(client => {
+            return html`
+              <div class="list-item client">
+                <div>${client.name || client.clientId || 'unknown'}</div>
+                ${client.video ? html`<button type="button" class="btn video" @click="${this.startListeningClient.bind(this, client, 'video')}">
+                  <ha-icon icon="mdi:video"></ha-icon>
+                </button>` : null}
+                <button type="button" class="btn audio" @click="${this.startListeningClient.bind(this, client, 'audio')}">
+                  <ha-icon icon="mdi:microphone"></ha-icon>
+                </button>
+              </div>
+            `
+          })}
+          ${this.TARGETS.map(target => {
+            return html`
+              <div class="list-item target">
+                <div>${target.name || 'unknown'}</div>
+                ${target.video ? html`<button type="button" class="btn video" @click="${this.startListening.bind(this, target)}">
+                  <ha-icon icon="mdi:video"></ha-icon>
+                </button>` : null}
+                <button type="button" class="btn audio" @click="${this.startListening.bind(this, target)}">
+                  <ha-icon icon="mdi:microphone"></ha-icon>
+                </button>
+              </div>
+            `
+          })}
+        </div>
+        <div style="display: none" class="send-message-container ${this.incomingMedia ? 'inactive' : 'active'}">
           ${this.config.name
             ? html`<div class="name">${this.config.name}</div>`
-            : html``
+            : null
           }
           ${!this.config.hideStatus
             ? html`<div class="status">${this.statusText}</div>`
-            : html``
+            : null
           }
           ${!this.config.hideTranscription
             ? html`<div class="latest-transcription">${this.latestTranscription}</div>`
-            : html``
+            : null
           }
         </div>
-        <div id="incoming-message-container" class="fixed ${this.activeMediaElement ? 'active' : 'inactive'}">
-          <div class="actions">
-            <button class="btn close-response" @click="${this.closeReplyWindow}">
+        <div class="message-container ${this.incomingMedia || this.outgoingMedia ? 'open' : 'closed'} ${this.fullscreen ? 'fullscreen' : ''}">
+
+          <div class="actions left">
+            <button class="btn fullscreen" @click="${() => this.toggleFullscreen()}">
+              ${this.fullscreen ? html`<ha-icon icon="mdi:fullscreen-exit"></ha-icon>` : html`<ha-icon icon="mdi:fullscreen"></ha-icon>`}
+            </button>
+          </div>
+          <div class="actions right">
+            <button class="btn close-response" @click="${this.closeMediaWindow}">
               <ha-icon icon="mdi:close"></ha-icon>
             </button>
-            ${this.micButtonReply}
+            ${this.incomingMedia && !this.outgoingMedia
+              ? html`
+                <button type="button" class="btn audio" @click="${this.startListeningClient.bind(this, this.incomingMedia.from, 'video')}">
+                    <ha-icon icon="mdi:video"></ha-icon>
+                  </button>
+                  <button type="button" class="btn audio" @click="${this.startListeningClient.bind(this, this.incomingMedia.from, 'audio')}">
+                    <ha-icon icon="mdi:microphone"></ha-icon>
+                  </button>
+              `
+              : null
+            }
           </div>
-          <div class="header">Message From: <strong>${this.activeMediaElement?.from?.name || this.activeMediaElement?.from?.entity_id || 'unknown'}</strong></div>
-          ${this.activeMediaElement?.type === 'audio'
+          <div class="header">Message ${this.incomingMedia ? 'From' : 'To'}: <strong>${this.incomingMedia ? (this.incomingMedia?.from?.name || this.incomingMedia?.from?.entity_id || 'unknown') : (this.outgoingMedia?.to?.name || this.outgoingMedia?.to?.entity_id || 'unknown')}</strong></div>
+
+          <div class="av-container ${this.incomingMedia?.type || ''}">
+            ${this.incomingMedia?.type === 'audio' || (!this.incomingMedia && this.outgoingMedia?.type === 'audio')
+              ? html`
+                  <div class="img-container">
+                    <img src="/ha_intercom/sound.gif" alt="Incoming audio">
+                  </div>
+              `
+              : null
+            }
+            ${this.incomingMedia?.type === 'audio' ? this.audioElement : null}
+            ${this.incomingMedia?.type === 'video' ? this.incomingVideoElement : null}
+            ${this.outgoingMedia?.type === 'video' ? this.outgoingVideoElement : null}
+          </div>
+
+          ${this.incomingMedia && !this.outgoingMedia
             ? html`
-                <div class="img-container">
-                  <img src="/ha_intercom/sound.gif" alt="Incoming audio">
-                </div>
+              <div class="footer">
+                <div>Select an action to respond</div>
+              </div>
             `
-            : html``
+            : null
           }
-          <div id="av-container" class="${this.activeMediaElement?.type || ''}">
-            ${this.activeMediaElement?.type === 'audio' ? this.audioElement : null}
-            ${this.activeMediaElement?.type === 'video' ? this.videoElement : null}
-          </div>
         </div>
       </div>
     `
-    : html`<div>Loading...</div>`;
+      : html`
+        <div class="loading-container">
+          <div class="loading-bar"></div>
+        </div>
+      `;
   }
 
   setConfig(config) {
@@ -342,6 +641,9 @@ export class HaIntercomCard extends LitElement {
         this.config = config;
         this.CLIENT_ID = storedConfig.clientId;
         this.TARGETS = this.config.targets ? Array.isArray(this.config.targets) ? this.config.targets : [this.config.targets] : [];
+        this.display = this.config.display && ['default', 'collapse'].indexOf(this.config.display.trim().toLowerCase()) > -1 ? this.config.display.trim().toLowerCase() : 'default';
+        this.position = this.config.position && ['fixed', 'inline'].indexOf(this.config.position.trim().toLowerCase()) > -1 ? this.config.position.trim().toLowerCase() : 'fixed';
+        this.open = this.display === 'collapse' ? false : true;
         this.connectWebSocket();
       })
       .catch((e) => {
@@ -393,6 +695,39 @@ export class HaIntercomCard extends LitElement {
       });
   }
 
+  toggleMenu(state = undefined) {
+    if (state !== undefined) {
+      this.open = state;
+    } else {
+      this.open = !this.open;
+    }
+    return this.open;
+  }
+
+  toggleConfig(open = undefined) {
+    if (open !== undefined) {
+      this.displayConfig = open ? true : false;
+    } else {
+      this.displayConfig = !this.displayConfig;
+    }
+    return this.displayConfig;
+  }
+
+  toggleFullscreen(open = undefined) {
+    if (open !== undefined) {
+      this.fullscreen = open ? true : false;
+    } else {
+      this.fullscreen = !this.fullscreen;
+    }
+    return this.fullscreen;
+  }
+
+  resetConfig() {
+    this.ws?.send(this.createMessage({ type: 'reset', clientId: this.CLIENT_ID }));
+    this.displaySetup = true;
+    this.toggleConfig(false);
+  }
+
   updateConfig(e) {
     e.preventDefault();
     const formData = new FormData(e.target);
@@ -419,22 +754,43 @@ export class HaIntercomCard extends LitElement {
 
   // Resets the visual indicator and status text to the default state
   resetVisuals() {
-    let btn = this.activeMediaElement ? this.micButtonReply : this.micButton;
+    let btn = this.incomingMedia ? this.micButtonReply : this.micButton;
     if (this.indicatorTimeout) clearTimeout(this.indicatorTimeout);
     btn.classList.remove('starting', 'ready');
     btn.classList.remove('starting', 'ready');
     this.statusText = 'Microphone not active';
   }
 
-  closeReplyWindow() {
+  blockSession(wssId) {
+    this.blockedSessions.push(wssId);
+    setTimeout(() => {
+      this.blockedSessions = this.blockedSessions.filter(item => item !== wssId);
+    }, 5000);
+  }
+
+  isBlockedSession(wssId) {
+    if (!wssId) {
+      return false;
+    }
+    return this.blockedSessions.indexOf(wssId) > -1 ? true : false;
+  }
+
+  closeMediaWindow() {
     if (this.hideMediaElementTimeout) {
       clearTimeout(this.hideMediaElementTimeout);
     }
-    this.activeMediaElement = null;
+    if (this.incomingMedia?.wssId) {
+      let wssId = this.incomingMedia.wssId;
+      this.blockSession(wssId);
+      this.ws?.send(this.createMessage({ wssId, type: 'stop' }));
+    }
+    this.incomingMedia = null;
+    this.toggleFullscreen(false);
+    this.handleStopListening();
   }
 
   toggleListening(e) {
-    if (this.listening) {
+    if (this.outgoingMedia) {
       this.handleStopListening(e);
     } else {
       this.startListening(e);
@@ -442,14 +798,18 @@ export class HaIntercomCard extends LitElement {
   }
 
   startListeningClient({ name, entity_id }, type) {
-    this.startListening({ name, entities: [{ entity_id: `ha_client.${entity_id}`, type }] }, type);
+    this.startListening({ name, entity_id, entities: [{ entity_id: `ha_client.${entity_id}`, type }] }, type);
   }
 
   startListening(target, mediaType = 'audio') {
-    if (this.listening) return;
+    if (this.outgoingMedia) return;
 
-    this.listening = true;
-    target = this.activeMediaElement?.from?.id ? {name: this.activeMediaElement.from.name, entites: [{ entity_id: `ha_client.${this.activeMediaElement.from.id}` }] } : target;
+    this.outgoingMedia = {
+      type: mediaType,
+      to: target,
+    };
+    this.toggleMenu(false); // close the menu
+    target = this.incomingMedia?.from?.id ? {name: this.incomingMedia.from.name, entities: [{ entity_id: `ha_client.${this.incomingMedia.from.id}` }] } : target;
     this.ws?.send(this.createMessage({ target, type: 'start' }));
     this.setIndicator(); // Set visual indicator to starting/ready
 
@@ -477,6 +837,9 @@ export class HaIntercomCard extends LitElement {
           recorder.ondataavailable = e => {
             if (e.data.size > 0) {
               e.data.arrayBuffer().then(buffer => {
+                if (mediaType === 'video') {
+                  this.outgoingVideoSourceBuffer?.appendBuffer(buffer);
+                }
                 this.ws?.send(this.createMessage({ type: mediaType === 'video' ? 'video' : 'audio' }, buffer));
               });
             }
@@ -491,122 +854,14 @@ export class HaIntercomCard extends LitElement {
       })
       .catch(err => {
         console.error('HA-Intercom: Recording error:', err);
-        this.handleStopListening({}); // Call release handler to clean up state
+        this.stopListening(); // Call release handler to clean up state immediately
       });
   }
 
-//   startListening(e) {
-//     this.checkCancelable(e);
-
-//     // Reliable Events: Block redundant events and track state
-//     if (e.type === 'touchstart') {
-//       this.isTouchDown = true;
-//       this.isMouseDown = false;
-//     } else if (e.type === 'mousedown') {
-//       if (this.isTouchDown) return;
-//       this.isMouseDown = true;
-//     }
-
-//     // Debounce: Clear any pending release timeout
-//     if (this.releaseTimeout) {
-//       clearTimeout(this.releaseTimeout);
-//       this.releaseTimeout = null;
-//       if (this.listening) return; // Debounce successful, continue recording
-//     }
-
-//     // Clear stop delay timeout if it was scheduled but a new click started
-//     if (this.stopDelayTimeout) {
-//       clearTimeout(this.stopDelayTimeout);
-//       this.stopDelayTimeout = null;
-//     }
-
-//     if (this.listening) return;
-
-//     this.listening = true;
-//     let target = this.activeMediaElement?.from?.id ? [{ entity_id: `ha_client.${this.activeMediaElement.from.id}` }] : null;
-//     this.ws?.send(this.createMessage({ type: 'start', target }));
-//     this.setIndicator(); // Set visual indicator to starting/ready
-
-//     this.getDevices = navigator.mediaDevices.getUserMedia({
-//         audio: {
-//           latency: { ideal: 0.01 }, // Explicitly request ultra-low latency (e.g., 10ms ideal)
-//           channelCount: 1,
-//           noiseSuppression: true,
-//           autoGainControl: true,
-//           echoCancellation: true
-//         },
-//         video: this.config.video ? {
-//             facingMode: "user", // or "environment" for back camera on mobile
-//             frameRate: { ideal: 60, max: 60 },
-//             width: { ideal: 640 },
-//             height: { ideal: 360 }
-//         } : false
-//       })
-//       .then(stream => {
-//         this.setIndicator(true);
-//         return new MediaRecorder(stream, { mimeType: (this.config.video ? 'video/webm;codecs=vp8,opus' : 'audio/webm;codecs=opus') })
-//       })
-//       .then(recorder => {
-//         if (recorder?.state === 'inactive') {
-//           recorder.ondataavailable = e => {
-//             if (e.data.size > 0) {
-//               e.data.arrayBuffer().then(buffer => {
-//                 this.ws?.send(this.createMessage({ type: this.config.video ? 'video' : 'audio' }, buffer));
-//               });
-//             }
-//           };
-//           recorder.onstop = () => {
-//             // 2. Send the 'stop' command to the backend
-//             this.ws?.send(this.createMessage({ type: 'stop' }));
-//           };
-//           recorder.start(this.recordInterval);
-//         }
-//         return recorder;
-//       })
-//       .catch(err => {
-//         console.error('HA-Intercom: Recording error:', err);
-//         this.handleButtonRelease({}); // Call release handler to clean up state
-//       });
-// }
-
-// Handles the first stage of release (debounce)
-
 handleStopListening(target) {
-  if (!this.listening) return;
+  if (!this.outgoingMedia) return;
   this.scheduleStopListening();
 }
-
-// handleButtonRelease(e) {
-//     if (!this.listening) return;
-//     this.checkCancelable(e);
-
-//     // Reliable Events: Block redundant release events
-//     if (e.type === 'touchend' || e.type === 'touchcancel') {
-//         if (!this.isTouchDown) return;
-//         this.isTouchDown = false;
-//     } else if (e.type === 'mouseup' || e.type === 'mouseleave') {
-//         if (!this.isMouseDown) return;
-//         if (this.isTouchDown) return;
-//         this.isMouseDown = false;
-//     }
-
-//     // If both flags are clear, but we are still listening, schedule the stop process
-//     if (!this.isMouseDown && !this.isTouchDown && this.listening) {
-
-//         // Clear any existing release timeout to prevent double scheduling
-//         if (this.releaseTimeout) {
-//             clearTimeout(this.releaseTimeout);
-//         }
-
-//         // Debounce: Start the release timer (500ms)
-//         this.releaseTimeout = setTimeout(() => {
-//             this.releaseTimeout = null;
-
-//             // Debounce period expired: reset visuals and schedule stop command
-//             this.scheduleStopListening();
-//         }, this.debounceTime);
-//     }
-// }
 
 // Schedules the final 'stop' after the 500ms debounce
 
@@ -628,9 +883,10 @@ scheduleStopListening() {
 
 showMediaElement(type, clientInfo) { // type = video or audio
 
-  this.activeMediaElement = {
+  this.incomingMedia = {
     type,
-    from: clientInfo.from
+    from: clientInfo.from,
+    wssId: clientInfo.wssId
   };
 
   if (this.hideMediaElementTimeout) {
@@ -639,10 +895,13 @@ showMediaElement(type, clientInfo) { // type = video or audio
 
   // Delayed Stop: Schedule the actual stop with a delay
   this.hideMediaElementTimeout = setTimeout(() => {
-    if (this.listening) { // assume user is replying...
+    if (this.outgoingMedia) { // assume user is replying...
       this.showMediaElement(type, clientInfo);
     } else {
-      this.activeMediaElement = null;
+      this.incomingMedia = null;
+      if (!this.outgoingMedia) {
+        this.toggleFullscreen(false);
+      }
       this.hideMediaElementTimeout = null;
     }
   }, this.hideActiveElementDelay);
@@ -650,15 +909,14 @@ showMediaElement(type, clientInfo) { // type = video or audio
 
 // The final cleanup and 'stop' sender
 stopListening() {
-    if (!this.listening) return;
+    if (!this.outgoingMedia) return;
 
     // 1. Stop the local MediaRecorder and stream
     this.getDevices?.then(recorder => {
-      if (recorder?.state !== 'inactive') {
-        recorder.stream.getAudioTracks().forEach(track => track.stop());
+      if (recorder && recorder?.state !== 'inactive') {
+        recorder.stream?.getAudioTracks().forEach(track => track.stop());
         recorder.stop();
       }
-      this.listening = false;
     });
 
     // 3. Clear all related timers (visuals already reset by scheduleStopListening)
@@ -666,6 +924,10 @@ stopListening() {
     if (this.releaseTimeout) clearTimeout(this.releaseTimeout);
     if (this.stopDelayTimeout) clearTimeout(this.stopDelayTimeout);
 
+    this.outgoingMedia = null;
+    if (!this.incomingMedia) {
+      this.toggleFullscreen(false);
+    }
     this.releaseTimeout = null;
     this.stopDelayTimeout = null;
     this.hideMediaElementTimeout = null;
@@ -677,8 +939,8 @@ stopListening() {
   // --- End of Debounce/Stop Logic ---
 
   setIndicator(ready = false) {
-    let btn = this.activeMediaElement ? this.micButtonReply : this.micButton;
-      if (ready && this.listening) {
+    let btn = this.incomingMedia ? this.micButtonReply : this.micButton;
+      if (ready && this.outgoingMedia) {
           btn.classList.remove('starting');
           btn.classList.add('ready');
           this.statusText = 'Microphone is active and ready to record!';
@@ -714,53 +976,58 @@ stopListening() {
             }
         });
 
-        this.audioElement.play().catch(e => console.warn('HA-Intercom: Autoplay failed:', e));
-    });
-
-    this.audioMediaSource.addEventListener('sourceclose', () => {
+        this.audioMediaSource.addEventListener('sourceclose', () => {
           this.isAudioSourceOpen = false;
           this.audioSourceBuffer = null;
           console.log('HA-Intercom: MediaSource closed.');
+        });
+
+        this.audioElement.play().catch(e => console.warn('HA-Intercom: Autoplay failed:', e));
     });
+
   }
 
   setupVideoPlayback() {
-    // Reuse MediaSource
-    this.videoMediaSource = new MediaSource();
-    this.videoElement.src = URL.createObjectURL(this.videoMediaSource);
+    const mimeType = 'video/webm;codecs=vp8,opus';
+    this.videoMediaTargets.forEach(({ source, element, isOpen, buffer }) => {
 
-    this.videoMediaSource.addEventListener('sourceopen', () => {
-        this.isVideoSourceOpen = true; // Use a different flag for clarity
+      // Reuse MediaSource
+      this[source] = new MediaSource();
+      this[element].src = URL.createObjectURL(this[source]);
+
+      this[source].addEventListener('sourceopen', () => {
+        this[isOpen] = true; // Use a different flag for clarity
 
         // 2. Change MIME type to support video (vp8) and audio (opus)
-        const mimeType = 'video/webm;codecs=vp8,opus';
 
         if (!MediaSource.isTypeSupported(mimeType)) {
-            console.error(`HA-Video: MIME type ${mimeType} is not supported on this device.`);
-            return;
+          console.error(`HA-Video: MIME type ${mimeType} is not supported on this device.`);
+          return;
         }
 
         // Use a new source buffer property for video
-        this.videoSourceBuffer = this.videoMediaSource.addSourceBuffer(mimeType);
+        this[buffer] = this[source].addSourceBuffer(mimeType);
 
-        this.videoSourceBuffer.addEventListener('updateend', () => {
-            // Use the video source buffer
-            if (this.videoSourceBuffer && !this.videoSourceBuffer.updating && this.videoMediaSource.readyState === 'open') {
-                // Use the video element
-                this.videoElement.play().catch(e => {
-                    console.warn('HA-Video: Playback prevented by browser policy (autoplay)', e);
-                });
-            }
+        this[buffer].addEventListener('updateend', () => {
+          // Use the video source buffer
+          if (this[buffer] && !this[buffer].updating && this[source].readyState === 'open') {
+            // Use the video element
+            this[element].play().catch(e => {
+              console.warn('HA-Video: Playback prevented by browser policy (autoplay)', e);
+            });
+          }
+        });
+
+        this[buffer].addEventListener('sourceclose', () => {
+          this[isOpen] = false; // Use the video flag
+          this[buffer] = null;
+          console.log('HA-Video: MediaSource closed.');
         });
 
         // Autoplay attempt (might be blocked by browser)
-        this.videoElement.play().catch(e => console.warn('HA-Video: Autoplay failed:', e));
-    });
+        this[element].play().catch(e => console.warn('HA-Video: Autoplay failed:', e));
+      });
 
-    this.audioMediaSource.addEventListener('sourceclose', () => {
-        this.isVideoSourceOpen = false; // Use the video flag
-        this.videoSourceBuffer = null;
-        console.log('HA-Video: MediaSource closed.');
     });
 }
 
@@ -787,7 +1054,7 @@ stopListening() {
 
     this.ws.onmessage = (event) => {
       const { header, data } = this.decodeMessage(event.data);
-      let { type, text, from, clients } = header;
+      let { type, text, wssId, from, clients } = header;
       if (type === 'transcription') {
         this.setLatestTranscription(text);
       } else if (type === 'config') { // set Client Name and Entity_ID in UI
@@ -800,22 +1067,23 @@ stopListening() {
       } else if (type === 'clients') {
         this.CLIENTS = clients;
       } else if (type === 'stop') {
+        this.handleStopListening();
         this.setupAudioPlayback(); // reset audio
         this.setupVideoPlayback(); // reset video
       } else if (type === 'audio') {
-        if (this.isAudioSourceOpen && this.audioSourceBuffer && !this.audioSourceBuffer.updating) {
+        if (this.isAudioSourceOpen && this.audioSourceBuffer && !this.audioSourceBuffer.updating && !this.isBlockedSession(wssId)) {
             try {
-              this.showMediaElement('audio', {from});
+              this.showMediaElement('audio', { ...{ from }, wssId});
               this.audioSourceBuffer.appendBuffer(data);
             } catch (e) {
                 console.error('HA-Intercom: Error appending audio buffer:', e);
             }
         }
       } else if (type === 'video') {
-        if (this.isVideoSourceOpen && this.videoSourceBuffer && !this.videoSourceBuffer.updating) {
+        if (this.isIncomingVideoSourceOpen && this.incomingVideoSourceBuffer && !this.incomingVideoSourceBuffer.updating && !this.isBlockedSession(wssId)) {
             try {
-              this.showMediaElement('video', {from});
-              this.videoSourceBuffer.appendBuffer(data);
+              this.showMediaElement('video', { ...{ from }, wssId});
+              this.incomingVideoSourceBuffer.appendBuffer(data);
             } catch (e) {
                 console.error('HA-Intercom: Error appending video buffer:', e);
             }
