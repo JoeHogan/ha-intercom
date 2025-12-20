@@ -242,6 +242,24 @@ export class HaIntercomCard extends LitElement {
               }
           }
         }
+        .img-container {
+          + video {
+            position: absolute;
+            aspect-ratio: 16 / 9;
+            width: 25%;
+            min-width: unset;
+            min-height: unset;
+            top: unset;
+            transform: unset;
+            object-fit: unset;
+            bottom: 0;
+            z-index: 12;
+            left: 0;
+            border-right: 1px solid white;
+            border-top: 1px solid white;
+            border-top-right-radius: 6px;
+          }
+        }
       }
 
       &.fixed {
@@ -598,6 +616,7 @@ export class HaIntercomCard extends LitElement {
           <div class="header">Message ${this.incomingMedia ? 'From' : 'To'}: <strong>${this.incomingMedia ? (this.incomingMedia?.from?.name || this.incomingMedia?.from?.entity_id || 'unknown') : (this.outgoingMedia?.to?.name || this.outgoingMedia?.to?.entity_id || 'unknown')}</strong></div>
 
           <div class="av-container ${this.incomingMedia?.type || ''}">
+            ${this.incomingMedia?.type === 'audio' ? this.audioElement : null}
             ${this.incomingMedia?.type === 'audio' || (!this.incomingMedia && this.outgoingMedia?.type === 'audio')
               ? html`
                   <div class="img-container">
@@ -606,7 +625,6 @@ export class HaIntercomCard extends LitElement {
               `
               : null
             }
-            ${this.incomingMedia?.type === 'audio' ? this.audioElement : null}
             ${this.incomingMedia?.type === 'video' ? this.incomingVideoElement : null}
             ${this.outgoingMedia?.type === 'video' ? this.outgoingVideoElement : null}
           </div>
