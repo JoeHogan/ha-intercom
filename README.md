@@ -2,7 +2,14 @@
 
 An intercom and announcement system for use with Home Assistant.
 
+![Collapsable configuration](assets/collapse.png)
+- One intercom configuration for multiple targets and clients
+
+![Client Configuration Form](assets/incoming.png)
+- Incoming audio/video calls now displayed by recieving clients (if capable)
+
 ![Inercom Features](assets/all-features.png)
+- The original mode is still supported
 
 ## Features
 
@@ -12,7 +19,13 @@ An intercom and announcement system for use with Home Assistant.
 
 ## Notes
 
-This is a work in progress. I'm porting this over from a standalone container solution to a Home Assistant Integration.
+Release 2.0 is moving away from using multiple HA-Intercom cards in favor of a single card with multiple target options. Also moving away from holding the microphone button down in favor of a click once to start, click close to stop. There are configuration options to revert to using these 'older' methods, if you prefer.
+
+These changes were introduced to provide a better client-to-client experience, including video calling/broadcasting.
+
+Upcoming changes:
+
+Move from pure Websockets to WebRTC.
 
 ## Container Installation
 
@@ -41,74 +54,60 @@ with category **Integration**.
 ## Home Assistant YAML config example
 
 ```yaml
-- type: custom:ha-intercom-card
-  name: Audio Intercom
-  ttsPrefix: "Incoming Notification:"
-  hideStatus: false
-  hideTranscription: false
-  target:
-    - entity_id: media_player.esp32_media_player
-      type: audio
-
-- type: custom:ha-intercom-card
-  name: TTS Intercom
-  target:
-    - entity_id: media_player.esp32_media_player2
-      type: tts
-      voice: my-piper-voice-medium
-
-- type: custom:ha-intercom-card
-  name: Alexa Intercom
-  target:
-    - entity_id: media_player.my_alexa
-      type: alexa
-
-- type: custom:ha-intercom-card
-  name: Fire TV Intercom
-  target:
-    - entity_id: media_player.fire_tv
-      type: alexa
-        data:
-          type: announce
-
-- type: custom:ha-intercom-card
-  name: Everywhere Intercom
-  target:
-    - entity_id: media_player.esp32_media_player
-      type: audio
-    - entity_id: media_player.esp32_media_player2
-      type: tts
-      voice: my-piper-voice-medium
-    - entity_id: media_player.my_alexa
-      type: alexa
-    - entity_id: media_player.fire_tv
-      type: alexa
-        data:
-            type: announce
+  - type: custom:ha-intercom-card
+    clientId: client_1
+    video: true
+    display: collapse
+    position: inline
+    targets:
+      - name: Main Floor TV
+        entities:
+          - entity_id: media_player.my_fire_tv
+            type: alexa
+            data:
+              type: announce
+      - name: Kitchen
+        entities:
+          - entity_id: >-
+              media_player.esphome_voice_satellite
+            type: audio
+      - name: Kitchen and TV
+        entities:
+          - entity_id: >-
+              media_player.esphome_voice_satellite
+            type: audio
+          - entity_id: media_player.my_fire_tv
+            type: alexa
+            data:
+              type: announce
 ```
 
-### HA-Intercom to HA-Intercom communication
-- This merits a separate example because intercom to intercom communication requires:
-    - providing a unique "id" property for each Intercom client you wish to broadcast to
-    - using a special "ha_client" prefix on the target entity_id
-        - ie: entity_id: ha_client.[target client id]
+### Config options
 
-#### Example, Intercom Client 1 can send to Intercom Client 2, and Intercom Client 2 can send to Intercom Client 1
-```yaml
+- clientId
+    - string
+    - create a unique ID for your intecom; this is used to identify the client instance on the backend
+- video
+    - boolean
+    - default: false
+    - whether your client supports video (assumes you have a camera)
+- display
+    - default, collapse, single
+    - default: default
+    - how you want the card to behave when showing clients; using the 'single' option reverts to using the version 1.x mode of a single intercom that you hold to speak
+- position
+    - inline, fixed
+    - default: fixed
+    - determines where on the screen you want outgoing/incoming messages to be displayed. Fixed positions the container on the bottom right of your screen when a message is being sent/recieved
 
-- type: custom:ha-intercom-card
-  name: Client 1
-  id: client_1
-  target:
-    - entity_id: ha_client.client_2
+### Client Configuration
 
-- type: custom:ha-intercom-card
-  name: Client 2
-  id: client_2
-  target:
-    - entity_id: ha_client.client_1
+- After configuring your YAML, you will be presented with the client configuration to give your ha-intercom client instance a name and entity_id. The purpose of this is to identify different clients using the same configuration on the same dashboard. For example, you may share one dashboard for all of your wallpanels; in order to call wallpanel one from wallpanel two, they need unique ids which cannot be done in the yaml config (since it is the same dashboard). This configuration provides you that ability.
 
-```
+![Client Configuration Form](assets/create_config.png)
+
+![Client Configuration Information](assets/display_config.png)
+
 
 ## Requirements
 
