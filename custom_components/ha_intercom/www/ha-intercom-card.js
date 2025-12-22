@@ -523,7 +523,7 @@ export class HaIntercomCard extends LitElement {
         <div id="current-config">
           <div class="details">
             <div>Name: ${this.NAME}</div>
-            <div>Entity ID: ${this.ENTITY_ID}</div>
+            <div>Entity ID: ha_intercom.${this.ENTITY_ID}</div>
           </div>
           <div class="actions">
             <button class="btn-normal cancel" @click="${() => this.toggleConfig(false)}">
