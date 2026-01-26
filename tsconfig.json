@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+     "noEmit": true, // Optional - see note below
+     "target": "esnext",
+     "module": "nodenext",
+     "rewriteRelativeImportExtensions": true,
+     "erasableSyntaxOnly": true,
+     "verbatimModuleSyntax": true,
+     "lib": [ "es2015" ]
+  }
+}

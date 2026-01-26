@@ -10,10 +10,10 @@ export async function updateConfig(key, updateCb) {
     const jsonString = JSON.stringify(existingData, null, 2);
 
     await fs.writeFile(configPath, jsonString, 'utf-8');
-    console.log('JSON file updated successfully!');
+    console.log('Configuration updated successfully!');
     return existingData[key];
   } catch (error) {
-    console.error('Error handling JSON file:', error);
+    console.error('Error updating configuration:', error);
   }
 }
 
@@ -31,20 +31,20 @@ export async function getConfig() {
     return existingData;
 }
 
-export async function addKnownClient(id, {name, entity_id}) {
+export async function addKnownClient(userId, {name, entity_id}) {
     const clients = await updateConfig('clients', (clients = {}) => {
-        let configItem = clients[id] || {};
+        let configItem = clients[userId] || {};
         let updatedConfigItem = {...configItem, name, entity_id};
-        clients[id] = updatedConfigItem;
+        clients[userId] = updatedConfigItem;
         return clients;
     });
-    return clients[id];
+    return clients[userId];
 }
 
-export async function removeKnownClient(id) {
+export async function removeKnownClient(userId) {
     const clients = await updateConfig('clients', (clients = {}) => {
-        if(clients[id]) {
-          delete clients[id];
+        if(clients[userId]) {
+          delete clients[userId];
         }
         return clients;
     });
@@ -52,7 +52,7 @@ export async function removeKnownClient(id) {
 }
 
 export async function getKnownClients() {
-    let config = await getConfig();
+    let config: any = await getConfig();
     return config.clients || {};
 }
 

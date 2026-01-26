@@ -1,19 +1,27 @@
 {
   "name": "ha-intercom",
-  "version": "1.0.0",
-  "description": "An intercom and announcement system for Home Assistant",
-  "main": "index.mjs",
-  "scripts": {
-    "start": "node index.mjs"
-  },
-  "author": "",
+  "version": "3.0.0",
+  "description": "",
   "license": "ISC",
+  "author": "",
+  "type": "module",
+  "main": "server.ts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "nodemon server.ts"
+  },
   "dependencies": {
-    "axios": "^1.9.0",
-    "dotenv": "^16.5.0",
-    "express": "^5.1.0",
-    "net": "^1.0.2",
-    "uuid": "^11.1.0",
-    "ws": "^8.18.2"
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "mediasoup": "^3.19.14",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.0.10",
+    "@types/ws": "^8.18.1",
+    "nodemon": "^3.1.11",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
   }
 }
