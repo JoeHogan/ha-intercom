@@ -2,7 +2,7 @@ import { LitElement, html, css } from "https://unpkg.com/lit-element@4.1.1/lit-e
 import * as mediasoupClient from "https://esm.sh/mediasoup-client";
 import { getAccessToken } from "./refreshToken.js";
 
-class WebRTCCallCard extends LitElement {
+class HaIntercomCard extends LitElement {
 
   setConfig(config) {
     if (!config.clientId) {
@@ -1233,4 +1233,4 @@ class WebRTCCallCard extends LitElement {
   }
 }
 
-customElements.define('ha-intercom-card', WebRTCCallCard);
+customElements.define('ha-intercom-card', HaIntercomCard);
