@@ -1,7 +1,8 @@
 
 import axios from 'axios';
 import https from 'https';
-import { AUDIO_CONFIG } from '../index.mjs';
+import { AUDIO_CONFIG, outputType } from './ffmpeg.ts';
+import type { RoomState } from '../models/interfaces.ts';
 
 const httpsAgent = new https.Agent({
   rejectUnauthorized: false, // disables SSL cert verification
@@ -9,20 +10,20 @@ const httpsAgent = new https.Agent({
 
 const ttsPrefix = process.env.TTS_PREFIX || null;
 
-export const postAudio = (client, entities) => {
+export const postAudio = (room: RoomState, entities) => {
     return Promise.all(entities.map((entity) => {
         return axios.post(
-            `${client.haUrl}/api/services/media_player/play_media`,
+            `${room.environment.haUrl}/api/services/media_player/play_media`,
             {
                 entity_id: entity.entity_id,
-                media_content_id: `${client.audioHost}/listen/${client.wssId}/audio.${client.outputType}`,
-                media_content_type: `${AUDIO_CONFIG[client.outputType]?.audioType || 'music'}`,
+                media_content_id: `${room.environment.audioHost}/listen/${room.id}/audio.${outputType}`,
+                media_content_type: `${AUDIO_CONFIG[outputType]?.audioType || 'music'}`,
                 announce: true,
             },
             {
                 httpsAgent,
                 headers: {
-                    Authorization: `Bearer ${client.haToken}`,
+                    Authorization: `Bearer ${room.environment.haToken}`,
                     'Content-Type': 'application/json'
                 }
             }
@@ -36,7 +37,7 @@ export const postAudio = (client, entities) => {
     }));
 };
 
-export const postAlexaTTS = (client, message, entities) => {
+export const postAlexaTTS = (room: RoomState, message, entities) => {
     return Promise.all(entities.map((entity) => {
         const payload = {
             message: [(entity.tts_prefix || ttsPrefix || ''), message].join(' ').trim(),
@@ -47,10 +48,10 @@ export const postAlexaTTS = (client, message, entities) => {
             target: [entity.entity_id]
         };
         return axios.post(
-            `${client.haUrl}/api/services/notify/alexa_media`, payload, {
+            `${room.environment.haUrl}/api/services/notify/alexa_media`, payload, {
                 httpsAgent,
                 headers: {
-                    Authorization: `Bearer ${client.haToken}`,
+                    Authorization: `Bearer ${room.environment.haToken}`,
                     'Content-Type': 'application/json'
                 }
             }
@@ -63,10 +64,10 @@ export const postAlexaTTS = (client, message, entities) => {
     }));
 };
 
-export const postTTS = (client, message, entities) => {
+export const postTTS = (room: RoomState, message, entities) => {
     return Promise.all(entities.map((entity) => {
 
-        let payload = {
+        let payload: any = {
             entity_id: 'tts.piper',
             media_player_entity_id: entity.entity_id,
             message: [(entity.tts_prefix ?? ttsPrefix ?? ''), message].join(' ').trim(),
@@ -80,10 +81,10 @@ export const postTTS = (client, message, entities) => {
         }
         
         return axios.post(
-            `${client.haUrl}/api/services/tts/speak`, payload,
+            `${room.environment.haUrl}/api/services/tts/speak`, payload,
              {
                 headers: {
-                    Authorization: `Bearer ${client.haToken}`,
+                    Authorization: `Bearer ${room.environment.haToken}`,
                     'Content-Type': 'application/json'
                 }
             }

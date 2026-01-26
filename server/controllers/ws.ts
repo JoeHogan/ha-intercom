@@ -1,4 +1,4 @@
-export const getMessage = (data) => {
+export const decodeMessage = (data) => {
     const buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength); // Convert to ArrayBuffer
     const view = new DataView(buffer);
 
