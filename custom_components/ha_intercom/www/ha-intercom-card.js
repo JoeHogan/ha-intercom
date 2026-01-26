@@ -376,6 +376,7 @@ class HaIntercomCard extends LitElement {
         }
 
         &.open {
+          z-index: 1;
 
           .toggle-menu {
             .btn {
