@@ -21,7 +21,7 @@ function getLocalIp(): string {
   return '127.0.0.1';
 }
 
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 const ANNOUNCED_IP = process.env.WEBRTC_HOST_IP || getLocalIp();
 const ICE_SERVERS = process.env.TURN_SERVER_URL
   ? [{ urls: process.env.TURN_SERVER_URL, username: process.env.TURN_USERNAME, credential: process.env.TURN_PASSWORD }]

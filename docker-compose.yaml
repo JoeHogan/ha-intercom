@@ -4,7 +4,6 @@ services:
     container_name: ha-intercom
     restart: always
     env_file: .env
-    ports:
-      - 3005:3001
+    network_mode: "host"
     volumes:
       - ./config:/app/config
