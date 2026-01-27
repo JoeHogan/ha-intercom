@@ -6,3 +6,5 @@ services:
     env_file: .env
     ports:
       - 3005:3001
+    volumes:
+      - ./config:/config
