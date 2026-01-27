@@ -6,4 +6,3 @@ services:
     env_file: .env
     ports:
       - 3005:3001
-    network_mode: "host"
