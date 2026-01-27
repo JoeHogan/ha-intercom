@@ -7,7 +7,7 @@
             "request": "launch",
             "runtimeExecutable": "npm",
             "runtimeArgs": [
-                "run-script", "start"
+                "run-script", "start-dev"
             ],
         }
     ]
