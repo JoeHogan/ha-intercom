@@ -124,24 +124,37 @@ with category **Integration**.
 
 # Docker Compose Example
 
+## Due to the use of WebRTC, you MUST use network_mode: "host"
+### You can directly pass your IP address and preferred port, if necessary, as environment variables
+## For your config to be saved, please map the volume as shown below
+
 ```yaml
 services:
   ha_intercom:
     image: josephhogan/ha-intercom:latest
     container_name: ha-intercom
     environment:
+      WEBRTC_HOST_IP: 192.168.1.X # optional, if it cannot be inferred correctly within container
+      PORT: 3001 # optional, but useful since network_mode: "host" is required and port defaults to 3001
       AUDIO_HOST: "http://192.168.X.X:3001" # optional
       HOME_ASSISTANT_URL: "http://192.168.X.X:8123" #optional
       WHISPER_HOST: "192.168.X.X:10300" # required for TTS
       TTS_PREFIX: "Incoming Notification:" # optional
       HOME_ASSISTANT_ACCESS_TOKEN: "[your long-lived access token]" # optional
     restart: always
-    ports:
-      - 3001:3001
+    network_mode: "host"
 ```
 
 # Environment Variables
 
+- WEBRTC_HOST_IP=192.168.1.X
+  - Optional
+  - Derived from environment
+  - Set this to override the address the WebRTC server uses to advertise
+- PORT=3001
+  - Optional
+  - Defalts to 3001
+  - Set this to override the default port, which is more useful now that network_mode: "host" is required
 - AUDIO_HOST=http://192.168.1.X:3001
     - Optional
     - Derived from the Home Assistant HA-Intercom config.
