@@ -354,8 +354,8 @@ class HaIntercomCard extends LitElement {
             height: unset;
             width: 25%;
             min-width: 300px;
-            bottom: 10px;
-            right: 10px;
+            bottom: 20px;
+            right: 20px;
             aspect-ratio: 16 / 9;
           }
           &.fullscreen {
@@ -481,6 +481,26 @@ class HaIntercomCard extends LitElement {
       }
     }
 
+    .audio-unlock-btn {
+      display: none;
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      background-color: #FF8C00;
+      color: white;
+      border: none;
+      cursor: pointer;
+      z-index: 3;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+      font-weight: bold;
+      align-items: center;
+      justify-content: center;
+      animation: pulse 2s infinite;
+    }
+
     @keyframes loading {
       0% {
         transform: translateX(0);
@@ -494,6 +514,12 @@ class HaIntercomCard extends LitElement {
       0% { opacity: 1; }
       50% { opacity: 0.2; }
       100% { opacity: 1; }
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.1); }
+      100% { transform: scale(1); }
     }
   `;
 
@@ -530,16 +556,34 @@ class HaIntercomCard extends LitElement {
     let micIcon = document.createElement('ha-icon');
     micIcon.setAttribute('icon', 'mdi:microphone');
     this.micButton.appendChild(micIcon);
+    this.unlockBtn = document.createElement('button');
+    this.unlockBtn.classList.add('audio-unlock-btn');
+    let unblockIcon = document.createElement('ha-icon');
+    unblockIcon.setAttribute('icon', 'mdi:security');
+    this.unlockBtn.appendChild(unblockIcon);
+    this.unlockBtn.addEventListener('click', () => {
+      console.log("User gesture received. Audio/Video unlocked.");
+      this.unlockBtn.style.display = 'none';
+    });
     this.remoteStreams = new Map();
     this.lastCaller = null;
     this.callEndedTimeout = null;
     this.callEndedDelay = 10000;
     this.callStartTime = null;
     this.callDurationStr = '';
+    this.audioConfig = true;
+    this.videoConfig = {
+      aspectRatio: 16/9
+    };
   }
 
   connectedCallback() {
     super.connectedCallback();
+    this.activationInterval = setInterval(() => {
+      if (this.checkActivation()) {
+        clearInterval(this.activationInterval);
+      }
+    }, 1000);
   }
 
   async connectSignaling() {
@@ -674,13 +718,13 @@ class HaIntercomCard extends LitElement {
     this.callStartTime = Date.now();
 
     try {
-      this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: type === 'video' ? true : false });
+      this.localStream = await navigator.mediaDevices.getUserMedia({ audio: this.audioConfig, video: type === 'video' ? this.videoConfig : false });
       this.outgoingVideoElement.srcObject = this.localStream;
       this.outgoingMedia = { type, to: targets[0] };
     } catch (err) {
       console.warn(`Failed to get one or more media devices: ${err}`);
       try {
-        this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        this.localStream = await navigator.mediaDevices.getUserMedia({ audio: this.audioConfig });
       } catch (audioErr) {
         console.error(`No media devices available or permissions denied: ${audioErr}`);
         throw audioErr;
@@ -714,14 +758,14 @@ class HaIntercomCard extends LitElement {
     this.roomState = 'in-call';
     this.callStartTime = Date.now();
     try {
-      this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: type === 'video' ? true : false });
+      this.localStream = await navigator.mediaDevices.getUserMedia({ audio: this.audioConfig, video: type === 'video' ? this.videoConfig : false });
       this.outgoingVideoElement.srcObject = this.localStream;
       this.outgoingMedia = { type, to: this.incomingMedia?.from };
     } catch (err) {
       console.warn(`Failed to get one or more media devices: ${err}`);
       try {
         // fallback to just Audio
-        this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        this.localStream = await navigator.mediaDevices.getUserMedia({ audio: this.audioConfig });
         this.outgoingMedia = { type: 'audio', to: this.incomingMedia?.from };
       } catch (audioErr) {
         console.error(`No media devices available or permissions denied: ${audioErr}`);
@@ -778,6 +822,9 @@ class HaIntercomCard extends LitElement {
         this.incomingVideoElement.srcObject = stream;
       }
       stream.addTrack(consumer.track);
+    }
+    if(!this.outgoingMedia && !this.fullscreen && this.config.autoFullscreen) {
+      this.toggleFullscreen(true);
     }
     this.requestUpdate();
   }
@@ -1226,12 +1273,24 @@ class HaIntercomCard extends LitElement {
             `}
           </div>
       </div>
+      ${this.config.hideUnlockButton ? null : this.unlockBtn}
     `;
   }
 
   getCardSize() {
     return 4;
   }
+
+  checkActivation() {
+    if (navigator.userActivation && navigator.userActivation.hasBeenActive) {
+      this.unlockBtn.style.display = 'none';
+      return true;
+    } else {
+      this.unlockBtn.style.display = 'flex';
+      return false;
+    }
+  }
+
 }
 
 customElements.define('ha-intercom-card', HaIntercomCard);

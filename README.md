@@ -13,19 +13,14 @@ An intercom and announcement system for use with Home Assistant.
 
 ## Features
 
-- Low latency, one-way audio intercom/announcements for supported media_player types
-- One-way audio to "active" HA-Intercom clients (cilents connected to HA intercom can recieve audio, like wallpanels with HA-Intercom components on the dashboard)
+- WebRTC based client-to-client Audio/Video calling (clients include other devices using a dashboard with HA-Intercom on them, like Wallpanels)
+- WebRTC based, low latency, one-way audio intercom/announcements for supported media_player types
 - Announcements via TTS media_player types that do not support local audio (ie: Alexa Media Player)
 
 ## Notes
 
-Release 2.0 is moving away from using multiple HA-Intercom cards in favor of a single card with multiple target options. Also moving away from holding the microphone button down in favor of a click once to start, click close to stop. There are configuration options to revert to using these 'older' methods, if you prefer.
-
-These changes were introduced to provide a better client-to-client experience, including video calling/broadcasting.
-
-Upcoming changes:
-
-Move from pure Websockets to WebRTC.
+Release 3.0 moved to a WebRTC model for lower latency and better client-to-client support.
+Due to browser security, user's must interact with the webpage to recieve incoming audio/video. HA-Intercom clients will, by default, display an button in the bottom right corner to remind you to interact with the page. This can be disabled in the config. This is not a limitation on sending audio/tts to other devices, just other clients.
 
 ## Container Installation
 
@@ -59,6 +54,7 @@ with category **Integration**.
     video: true
     display: collapse
     position: inline
+    autoFullscreen: true
     targets:
       - name: Main Floor TV
         entities:
@@ -99,6 +95,14 @@ with category **Integration**.
     - inline, fixed
     - default: fixed
     - determines where on the screen you want outgoing/incoming messages to be displayed. Fixed positions the container on the bottom right of your screen when a message is being sent/recieved
+- autoFullscreen
+    - boolean
+    - default: false
+    - when recieving an incoming message, go to full-screen automatically.
+- hideUnlockButton
+    - boolean
+    - default: false
+    - hide the 'unlock' button on the bottom right that ensures user has interacted with the screen in order to recieve incoming calls
 
 ### Client Configuration
 
