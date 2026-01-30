@@ -158,6 +158,7 @@ class HaIntercomCard extends LitElement {
     #media-container {
       position: relative;
       overflow: visible;
+      margin-top: 10px;
 
       .toggle-menu {
         display: none;
