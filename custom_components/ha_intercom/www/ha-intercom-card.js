@@ -442,7 +442,7 @@ class HaIntercomCard extends LitElement {
             right: 0;
             background-color: var(--card-background-color);
             color: var(--primary-text-color);
-            margin-top: 70px;
+            margin-top: 56px;
             max-height: 300px;
             min-width: 50%;
             overflow: auto;
