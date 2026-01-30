@@ -99,10 +99,10 @@ with category **Integration**.
     - boolean
     - default: false
     - when recieving an incoming message, go to full-screen automatically.
-- hideUnlockButton
+- hideInteractButton
     - boolean
     - default: false
-    - hide the 'unlock' button on the bottom right that ensures user has interacted with the screen in order to recieve incoming calls
+    - hide the 'interact' button on the bottom right that ensures user has interacted with the screen in order to recieve incoming calls
 
 ### Client Configuration
 

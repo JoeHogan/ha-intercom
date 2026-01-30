@@ -55,7 +55,8 @@ class HaIntercomCard extends LitElement {
       NAME: { type: String },
       CLIENTS: { type: Object },
       TARGETS: { type: Object },
-      remoteStreams: { type: Object }
+      remoteStreams: { type: Object },
+      playbackBlocked: { type: Boolean }
     };
   }
 
@@ -69,8 +70,8 @@ class HaIntercomCard extends LitElement {
     }
 
     .btn {
-      width: 50px;
-      height: 50px;
+      width: 42px;
+      height: 42px;
       border-radius: 50%;
       border: 0;
       background-color: rgba(0, 100, 150, 0.7);
@@ -95,6 +96,7 @@ class HaIntercomCard extends LitElement {
       border: 0;
       background: none;
       cursor: pointer;
+      font-weight: inherit;
     }
 
     .mic-indicator {
@@ -160,9 +162,10 @@ class HaIntercomCard extends LitElement {
       .toggle-menu {
         display: none;
         align-items: center;
+        font-weight: bold;
         background-color: rgba(0, 0, 0, 0.1);
         border-radius: 35px;
-        padding: 10px;
+        padding: 7px;
         > .details {
           flex-grow: 1;
         }
@@ -202,7 +205,7 @@ class HaIntercomCard extends LitElement {
               width: 100%;
               height: 100%;
 
-              video {
+              video, .img-container {
                 position: absolute;
                 min-width: 100%;
                 min-height: 100%;
@@ -211,7 +214,7 @@ class HaIntercomCard extends LitElement {
                 top: 50%;
                 object-fit: cover;
 
-                + video {
+                + video, + .img-container {
                   aspect-ratio: 16 / 9;
                   width: 25%;
                   min-width: unset;
@@ -225,6 +228,11 @@ class HaIntercomCard extends LitElement {
                   border-right: 1px solid white;
                   border-top: 1px solid white;
                   border-top-right-radius: 6px;
+                  background: black;
+                  img {
+                    width: 100%;
+                    height: 100%;
+                  }
                 }
               }
             }
@@ -309,11 +317,48 @@ class HaIntercomCard extends LitElement {
           width: 100%;
           height: 100%;
           overflow: hidden;
+          position: relative;
 
-          video {
+          .playback-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(4px);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            cursor: pointer;
+            z-index: 20;
+
+            ha-icon {
+              --mdc-icon-size: 64px;
+              margin-bottom: 12px;
+              filter: drop-shadow(0 0 10px rgba(0, 100, 150, 0.8));
+              animation: pulse 2s infinite;
+            }
+
+            span {
+              font-weight: bold;
+              text-transform: uppercase;
+              letter-spacing: 1.5px;
+              font-size: 0.9em;
+            }
+
+            &:hover ha-icon {
+              transform: scale(1.1);
+              transition: transform 0.2s ease-in-out;
+            }
+          }
+
+          video, .img-container {
             width: 100%;
 
-            + video {
+            + video, + .img-container {
                 aspect-ratio: 16 / 9;
                 width: 25%;
                 position: absolute;
@@ -324,6 +369,11 @@ class HaIntercomCard extends LitElement {
                 border-right: 1px solid white;
                 border-top: 1px solid white;
                 border-top-right-radius: 6px;
+                background: black;
+                img {
+                  width: 100%;
+                  height: 100%;
+                }
               }
           }
         }
@@ -386,13 +436,14 @@ class HaIntercomCard extends LitElement {
 
           .client-list {
             position: absolute;
-            top: 0;'
+            top: 0;
             left: 0;
             right: 0;
             background-color: var(--card-background-color);
             color: var(--primary-text-color);
             margin-top: 70px;
             max-height: 300px;
+            min-width: 50%;
             overflow: auto;
           }
 
@@ -481,7 +532,7 @@ class HaIntercomCard extends LitElement {
       }
     }
 
-    .audio-unlock-btn {
+    .audio-interact-btn {
       display: none;
       position: fixed;
       bottom: 20px;
@@ -556,14 +607,16 @@ class HaIntercomCard extends LitElement {
     let micIcon = document.createElement('ha-icon');
     micIcon.setAttribute('icon', 'mdi:microphone');
     this.micButton.appendChild(micIcon);
-    this.unlockBtn = document.createElement('button');
-    this.unlockBtn.classList.add('audio-unlock-btn');
-    let unblockIcon = document.createElement('ha-icon');
-    unblockIcon.setAttribute('icon', 'mdi:security');
-    this.unlockBtn.appendChild(unblockIcon);
-    this.unlockBtn.addEventListener('click', () => {
+    this.interactBtn = document.createElement('button');
+    this.interactBtn.classList.add('audio-interact-btn');
+    let interactIcon = document.createElement('ha-icon');
+    interactIcon.setAttribute('icon', 'mdi:gesture-tap');
+    this.interactBtn.appendChild(interactIcon);
+    this.interactBtn.addEventListener('click', () => {
       console.log("User gesture received. Audio/Video unlocked.");
-      this.unlockBtn.style.display = 'none';
+      this.interactBtn.style.display = 'none';
+      // Attempt to play/unlock all media elements
+      this._unblockPlayback();
     });
     this.remoteStreams = new Map();
     this.lastCaller = null;
@@ -571,10 +624,93 @@ class HaIntercomCard extends LitElement {
     this.callEndedDelay = 10000;
     this.callStartTime = null;
     this.callDurationStr = '';
-    this.audioConfig = true;
-    this.videoConfig = {
-      aspectRatio: 16/9
+    this.audioConfig = {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: false,
     };
+    this.videoConfig = {
+      aspectRatio: 16 / 9
+    };
+    this.syncInterval = null;
+    this.playbackBlocked = false;
+    this.debounceTime = 500;
+    this.stopDelay = 250;
+  }
+
+  _unblockPlayback() {
+    console.log("Unblocking playback...");
+    this.playbackBlocked = false;
+    this.incomingVideoElement.muted = false;
+    this.audioElement.muted = false;
+    this.outgoingVideoElement.muted = true; // Stay muted local-side
+    this._safePlay(this.incomingVideoElement);
+    this._safePlay(this.audioElement);
+    this._safePlay(this.outgoingVideoElement);
+  }
+
+  _safePlay(element) {
+    if (!element || !element.srcObject) return;
+
+    console.log(`Attempting to play ${element.tagName} element...`);
+
+    // For WebRTC, sometimes setting currentTime to a very large value or 0 forces a sync
+    this.syncToLiveEdge(element);
+
+    const playPromise = element.play();
+
+    if (playPromise !== undefined) {
+      playPromise.then(() => {
+        console.log(`${element.tagName} playback started successfully.`);
+        this.syncToLiveEdge(element);
+      }).catch(error => {
+        console.warn(`${element.tagName} playback failed: ${error.name}.`);
+
+        if (error.name === 'NotAllowedError') {
+          this.playbackBlocked = true;
+          // If it failed because of autoplay, we might try muted play as a fallback
+          if (!element.muted && element.tagName === 'VIDEO') {
+            console.log("Attempting muted fallback for video...");
+            element.muted = true;
+            element.play().catch(e => console.error("Muted playback also failed", e));
+          }
+        }
+      });
+    }
+  }
+
+  syncToLiveEdge(element) {
+    if (!element || !element.buffered || element.buffered.length === 0) return;
+
+    const end = element.buffered.end(element.buffered.length - 1);
+    const diff = end - element.currentTime;
+
+    // If we're more than 0.5s behind the live edge, seek to the end
+    if (diff > 0.5) {
+      console.log(`Syncing ${element.tagName} to live edge. (Lag: ${diff.toFixed(2)}s)`);
+      element.currentTime = end;
+    }
+  }
+
+  _startPlaybackMonitoring() {
+    if (this.syncInterval) return;
+    this.syncInterval = setInterval(() => {
+      if (this.roomState === 'in-call') {
+        if (this.incomingMedia?.from?.type === 'video') {
+          this.syncToLiveEdge(this.incomingVideoElement);
+        }
+        if (this.incomingMedia?.from?.type === 'audio') {
+          this.syncToLiveEdge(this.audioElement);
+        }
+      }
+    }, 2000);
+  }
+
+  _stopPlaybackMonitoring() {
+    if (this.syncInterval) {
+      clearInterval(this.syncInterval);
+      this.syncInterval = null;
+    }
   }
 
   connectedCallback() {
@@ -584,6 +720,15 @@ class HaIntercomCard extends LitElement {
         clearInterval(this.activationInterval);
       }
     }, 1000);
+    this._startPlaybackMonitoring();
+    this.bindButtonEvents(this.micButton);
+    this.resetVisuals();
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    if (this.activationInterval) clearInterval(this.activationInterval);
+    this._stopPlaybackMonitoring();
   }
 
   async connectSignaling() {
@@ -720,12 +865,17 @@ class HaIntercomCard extends LitElement {
     try {
       this.localStream = await navigator.mediaDevices.getUserMedia({ audio: this.audioConfig, video: type === 'video' ? this.videoConfig : false });
       this.outgoingVideoElement.srcObject = this.localStream;
+      this._safePlay(this.outgoingVideoElement);
       this.outgoingMedia = { type, to: targets[0] };
     } catch (err) {
       console.warn(`Failed to get one or more media devices: ${err}`);
       try {
         this.localStream = await navigator.mediaDevices.getUserMedia({ audio: this.audioConfig });
+        this.outgoingMedia = { type: 'audio', to: targets[0] };
+        targets = targets.map(target => ({ ...target, type: 'audio' })); //force target to be audio since video failed
       } catch (audioErr) {
+        this.outgoingMedia = null;
+        this.clearMediaElements();
         console.error(`No media devices available or permissions denied: ${audioErr}`);
         throw audioErr;
       }
@@ -760,6 +910,7 @@ class HaIntercomCard extends LitElement {
     try {
       this.localStream = await navigator.mediaDevices.getUserMedia({ audio: this.audioConfig, video: type === 'video' ? this.videoConfig : false });
       this.outgoingVideoElement.srcObject = this.localStream;
+      this._safePlay(this.outgoingVideoElement);
       this.outgoingMedia = { type, to: this.incomingMedia?.from };
     } catch (err) {
       console.warn(`Failed to get one or more media devices: ${err}`);
@@ -811,6 +962,7 @@ class HaIntercomCard extends LitElement {
       if (kind === 'audio') {
         const stream = new MediaStream([consumer.track]);
         this.audioElement.srcObject = stream;
+        this._safePlay(this.audioElement);
       }
       // If it's a video track but call type is audio, we ignore it
     } else if (callType === 'video') {
@@ -822,8 +974,9 @@ class HaIntercomCard extends LitElement {
         this.incomingVideoElement.srcObject = stream;
       }
       stream.addTrack(consumer.track);
+      this._safePlay(this.incomingVideoElement);
     }
-    if(!this.outgoingMedia && !this.fullscreen && this.config.autoFullscreen) {
+    if (!this.outgoingMedia && !this.fullscreen && this.config.autoFullscreen) {
       this.toggleFullscreen(true);
     }
     this.requestUpdate();
@@ -875,6 +1028,21 @@ class HaIntercomCard extends LitElement {
     return `${m}:${s.toString().padStart(2, '0')}`;
   }
 
+  clearMediaElements() {
+    if (this.incomingVideoElement) {
+      this.incomingVideoElement.srcObject = null;
+      this.incomingVideoElement.load();
+    }
+    if (this.outgoingVideoElement) {
+      this.outgoingVideoElement.srcObject = null;
+      this.outgoingVideoElement.load();
+    }
+    if (this.audioElement) {
+      this.audioElement.srcObject = null;
+      this.audioElement.load();
+    }
+  }
+
   hangUp() {
     if (this.roomId) {
       this.sendMessage({ type: 'hangup', roomId: this.roomId });
@@ -894,18 +1062,7 @@ class HaIntercomCard extends LitElement {
     }
 
     // Clear media elements
-    if (this.incomingVideoElement) {
-      this.incomingVideoElement.srcObject = null;
-      this.incomingVideoElement.load();
-    }
-    if (this.outgoingVideoElement) {
-      this.outgoingVideoElement.srcObject = null;
-      this.outgoingVideoElement.load();
-    }
-    if (this.audioElement) {
-      this.audioElement.srcObject = null;
-      this.audioElement.load();
-    }
+    this.clearMediaElements();
 
     this.roomState = 'idle';
     this.roomId = null;
@@ -914,6 +1071,7 @@ class HaIntercomCard extends LitElement {
     this.incomingMedia = null;
     this.outgoingMedia = null;
     this.remoteStreams.clear();
+    this.playbackBlocked = false;
     this.toggleFullscreen(false);
   }
 
@@ -1249,17 +1407,31 @@ class HaIntercomCard extends LitElement {
               <div class="header">Message ${this.incomingMedia ? 'From' : 'To'}: <strong>${this.incomingMedia ? (this.incomingMedia?.from?.name || this.incomingMedia?.from?.entity_id || 'unknown') : (this.outgoingMedia?.to?.name || this.outgoingMedia?.to?.entity_id || 'unknown')}</strong></div>
 
               <div class="av-container ${this.incomingMedia?.from?.type || ''}">
+                ${this.playbackBlocked ? html`
+                  <div class="playback-overlay" @click="${this._unblockPlayback}">
+                    <ha-icon icon="mdi:play-circle-outline"></ha-icon>
+                    <span>Click to Play</span>
+                  </div>
+                ` : null}
                 ${this.incomingMedia?.from?.type === 'audio' ? this.audioElement : null}
-                ${this.incomingMedia?.from?.type === 'audio' || (!this.incomingMedia && this.outgoingMedia?.type === 'audio')
+                ${this.incomingMedia?.from?.type === 'audio'
           ? html`
-                      <div class="img-container">
-                        <img src="/ha_intercom/sound.gif" alt="Incoming audio">
-                      </div>
-                  `
+                              <div class="img-container">
+                                <img src="/ha_intercom/sound.gif" alt="Incoming audio">
+                              </div>
+                          `
           : null
         }
                 ${this.incomingMedia?.from?.type === 'video' ? this.incomingVideoElement : null}
                 ${this.outgoingMedia?.type === 'video' ? this.outgoingVideoElement : null}
+                ${this.outgoingMedia?.type === 'audio'
+          ? html`
+                              <div class="img-container">
+                                <img src="/ha_intercom/sound.gif" alt="Outgoing audio">
+                              </div>
+                          `
+          : null
+        }
               </div>
 
               ${this.incomingMedia && !this.outgoingMedia
@@ -1273,7 +1445,7 @@ class HaIntercomCard extends LitElement {
             `}
           </div>
       </div>
-      ${this.config.hideUnlockButton ? null : this.unlockBtn}
+      ${this.config.hideInteractButton ? null : this.interactBtn}
     `;
   }
 
@@ -1283,12 +1455,125 @@ class HaIntercomCard extends LitElement {
 
   checkActivation() {
     if (navigator.userActivation && navigator.userActivation.hasBeenActive) {
-      this.unlockBtn.style.display = 'none';
+      this.interactBtn.style.display = 'none';
       return true;
     } else {
-      this.unlockBtn.style.display = 'flex';
+      this.interactBtn.style.display = 'flex';
       return false;
     }
+  }
+
+  checkCancelable(e) {
+    if (e?.cancelable) {
+      e.preventDefault();
+    }
+  }
+
+  async startListeningSingle(e) {
+    this.checkCancelable(e);
+
+    // Reliable Events: Block redundant events and track state
+    if (e.type === 'touchstart') {
+      this.isTouchDown = true;
+      this.isMouseDown = false;
+    } else if (e.type === 'mousedown') {
+      if (this.isTouchDown) return;
+      this.isMouseDown = true;
+    }
+    let target = this.TARGETS?.length ? this.TARGETS[0] : null;
+    if (!target) {
+      console.error(`HA-Intercom: You must define at least one target entity.`);
+      return;
+    }
+    this.setIndicator();
+    await this.startCall(target.entities, 'audio');
+    if (this.localStream) {
+      this.setIndicator(true);
+    }
+  }
+
+  handleButtonRelease(e) {
+    if (!this.outgoingMedia) return;
+    this.checkCancelable(e);
+
+    // Reliable Events: Block redundant release events
+    if (e.type === 'touchend' || e.type === 'touchcancel') {
+      if (!this.isTouchDown) return;
+      this.isTouchDown = false;
+    } else if (e.type === 'mouseup' || e.type === 'mouseleave') {
+      if (!this.isMouseDown) return;
+      if (this.isTouchDown) return;
+      this.isMouseDown = false;
+    }
+
+    // If both flags are clear, but we are still listening, schedule the stop process
+    if (!this.isMouseDown && !this.isTouchDown && this.outgoingMedia) {
+
+      // Clear any existing release timeout to prevent double scheduling
+      if (this.releaseTimeout) {
+        clearTimeout(this.releaseTimeout);
+      }
+
+      // Debounce: Start the release timer (500ms)
+      this.releaseTimeout = setTimeout(() => {
+        this.releaseTimeout = null;
+
+        // Debounce period expired: reset visuals and schedule stop command
+        this.scheduleStopListening();
+      }, this.debounceTime);
+    }
+  }
+
+  scheduleStopListening() {
+    // VISUAL DEBOUNCE: Reset the button appearance now that the 500ms debounce has passed
+    this.resetVisuals();
+
+    // Prevent double scheduling the final stop
+    if (this.stopDelayTimeout) {
+      clearTimeout(this.stopDelayTimeout);
+    }
+
+    // Delayed Stop: Schedule the actual stop with a delay
+    this.stopDelayTimeout = setTimeout(() => {
+      this.hangUp();
+      this.stopDelayTimeout = null;
+    }, this.stopDelay);
+  }
+
+  setIndicator(ready = false) {
+    let btn = this.micButton;
+    if (ready && this.outgoingMedia) {
+      btn.classList.remove('starting');
+      btn.classList.add('ready');
+      this.statusText = 'Microphone is active and ready to record!';
+    } else {
+      btn.classList.add('starting');
+      btn.classList.remove('ready');
+      this.statusText = 'Microphone starting, please wait...';
+    }
+  }
+
+  resetVisuals() {
+    let btn = this.micButton;
+    btn.classList.remove('starting', 'ready');
+    this.statusText = 'Microphone not active';
+  }
+
+  bindButtonEvents(btn) {
+
+    // all events
+    btn.addEventListener('click', this.checkCancelable.bind(this), { passive: false });
+
+    // touch events
+    btn.addEventListener('touchstart', this.startListeningSingle.bind(this), { passive: false });
+    btn.addEventListener('touchcancel', this.handleButtonRelease.bind(this), { passive: false });
+    btn.addEventListener('touchend', this.handleButtonRelease.bind(this), { passive: false });
+
+    // mouse events
+    btn.addEventListener('mousedown', this.startListeningSingle.bind(this), { passive: false });
+    btn.addEventListener('mouseup', this.handleButtonRelease.bind(this), { passive: false });
+    btn.addEventListener('mouseleave', this.handleButtonRelease.bind(this), { passive: false });
+
   }
 
 }
