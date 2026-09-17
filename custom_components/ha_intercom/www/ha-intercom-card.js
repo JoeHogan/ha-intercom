@@ -1674,7 +1674,7 @@ class HaIntercomCard extends LitElement {
 const cardName = 'ha-intercom-card';
 
 if (!customElements.get(cardName)) {
-  customElements.define(cardName, MediaMtxWebrtcCard);
+  customElements.define(cardName, HaIntercomCard);
 }
 
 // Push to card registry and trigger rebuild
