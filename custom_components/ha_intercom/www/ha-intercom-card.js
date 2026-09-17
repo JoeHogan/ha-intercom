@@ -809,8 +809,10 @@ class HaIntercomCard extends LitElement {
           this.hangUp();
           break;
         case 'newProducer':
-          if (!this.incomingMedia && this.roomState === 'in-call' && msg.from) {
-            this.incomingMedia = { from: msg.from, roomId: this.roomId };
+          if (msg.from) {
+            // Always update incomingMedia so from.type reflects the remote party's
+            // actual media type (e.g., upgrading from audio to video).
+            this.incomingMedia = { from: msg.from, roomId: this.incomingMedia?.roomId || this.roomId };
           }
           await this.consumeRemoteTrack(msg.producerId, msg.kind);
           break;
@@ -872,6 +874,7 @@ class HaIntercomCard extends LitElement {
       console.warn(`Failed to get one or more media devices: ${err}`);
       try {
         this.localStream = await navigator.mediaDevices.getUserMedia({ audio: this.audioConfig });
+        this.mediaType = 'audio'; // correct mediaType so server reports the right type
         this.outgoingMedia = { type: 'audio', to: targets[0] };
         targets = targets.map(target => ({ ...target, type: 'audio' })); //force target to be audio since video failed
       } catch (audioErr) {
@@ -918,6 +921,7 @@ class HaIntercomCard extends LitElement {
       try {
         // fallback to just Audio
         this.localStream = await navigator.mediaDevices.getUserMedia({ audio: this.audioConfig });
+        this.mediaType = 'audio'; // correct mediaType so server reports the right type
         this.outgoingMedia = { type: 'audio', to: this.incomingMedia?.from };
       } catch (audioErr) {
         console.error(`No media devices available or permissions denied: ${audioErr}`);
@@ -957,7 +961,17 @@ class HaIntercomCard extends LitElement {
       consumerId: consumer.id
     }));
 
-    const callType = this.incomingMedia?.from?.type || 'audio';
+    let callType = this.incomingMedia?.from?.type || 'audio';
+
+    // If a video track arrives, upgrade the call type to 'video' regardless
+    // of what incomingMedia.from.type currently says — the actual track is
+    // the source of truth.
+    if (kind === 'video' && callType !== 'video') {
+      callType = 'video';
+      if (this.incomingMedia) {
+        this.incomingMedia = { ...this.incomingMedia, from: { ...this.incomingMedia.from, type: 'video' } };
+      }
+    }
 
     if (callType === 'audio') {
       if (kind === 'audio') {
@@ -965,7 +979,6 @@ class HaIntercomCard extends LitElement {
         this.audioElement.srcObject = stream;
         this._safePlay(this.audioElement);
       }
-      // If it's a video track but call type is audio, we ignore it
     } else if (callType === 'video') {
       // For video calls, we want both Audio and Video to play in the video element
       let stream = this.incomingVideoElement.srcObject;
