@@ -1082,34 +1082,126 @@ class HaIntercomCard extends LitElement {
     }
   }
 
+  // --- Device Token Storage Helpers ---
+  // Stores a device-specific UUID redundantly across localStorage, cookies,
+  // and IndexedDB so that identity survives any single storage layer being cleared.
+
+  _setCookie(name, value, days = 3650) {
+    const expires = new Date(Date.now() + days * 864e5).toUTCString();
+    document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/; SameSite=Lax`;
+  }
+
+  _getCookie(name) {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const match = document.cookie.match(new RegExp('(?:^|; )' + escaped + '=([^;]*)'));
+    return match ? decodeURIComponent(match[1]) : null;
+  }
+
+  _openDeviceDB() {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open('ha-intercom-db', 1);
+      request.onupgradeneeded = () => {
+        request.result.createObjectStore('tokens');
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async _getFromIndexedDB(key) {
+    try {
+      const db = await this._openDeviceDB();
+      return new Promise((resolve) => {
+        const tx = db.transaction('tokens', 'readonly');
+        const store = tx.objectStore('tokens');
+        const req = store.get(key);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => resolve(null);
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  async _setInIndexedDB(key, value) {
+    try {
+      const db = await this._openDeviceDB();
+      return new Promise((resolve) => {
+        const tx = db.transaction('tokens', 'readwrite');
+        const store = tx.objectStore('tokens');
+        store.put(value, key);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+      });
+    } catch {
+      return false;
+    }
+  }
+
+  async _getDeviceToken() {
+    const key = 'ha-intercom-device-token';
+    // 1. localStorage (fastest)
+    let token = localStorage.getItem(key);
+    if (token) return token;
+    // 2. Cookie (survives localStorage clears)
+    token = this._getCookie(key);
+    if (token) return token;
+    // 3. IndexedDB (another independent store)
+    token = await this._getFromIndexedDB(key);
+    return token;
+  }
+
+  async _setDeviceToken(token) {
+    const key = 'ha-intercom-device-token';
+    try { localStorage.setItem(key, token); } catch (e) { console.warn('HA-Intercom: Failed to save device token to localStorage', e); }
+    try { this._setCookie(key, token); } catch (e) { console.warn('HA-Intercom: Failed to save device token to cookie', e); }
+    try { await this._setInIndexedDB(key, token); } catch (e) { console.warn('HA-Intercom: Failed to save device token to IndexedDB', e); }
+  }
+
   async getConfig(clientId) {
-    const key = 'ha-intercom';
-    let config = localStorage.getItem(key);
-    if (config) {
+    const storageKey = 'ha-intercom';
+
+    // Fast path: check localStorage for existing config
+    let storedConfig = localStorage.getItem(storageKey);
+    if (storedConfig) {
       try {
-        config = JSON.parse(config);
-        if (config[clientId]) {
-          return Promise.resolve(config[clientId]);
-        } else {
-          throw new Error("Stored Config does not contain the ClientId");
+        storedConfig = JSON.parse(storedConfig);
+        if (storedConfig[clientId]) {
+          // Ensure device token is backed up to cookie and IndexedDB
+          // (also handles migration from legacy thumbmark-based configs)
+          const token = storedConfig[clientId].deviceToken || storedConfig[clientId].thumbmark;
+          if (token) {
+            await this._setDeviceToken(token);
+          }
+          return storedConfig[clientId];
         }
       } catch (e) {
-        console.error(`HA-Intercom: ${e}`);
+        console.warn(`HA-Intercom: Failed to parse stored config: ${e}`);
+        storedConfig = null;
       }
     }
-    return import('https://cdn.jsdelivr.net/npm/@thumbmarkjs/thumbmarkjs/dist/thumbmark.umd.js')
-      .then(() => {
-        return new ThumbmarkJS.Thumbmark().get();
-      })
-      .then(({ thumbmark }) => {
-        config = { ...(config || {}), [clientId]: { thumbmark, clientId: `${thumbmark}_${clientId}` } };
-        localStorage.setItem(key, JSON.stringify(config));
-        return config[clientId];
-      })
-      .catch((e) => {
-        console.error('HA-Intercom: Error getting clientId');
-        return null;
-      });
+
+    // localStorage miss — try to recover device token from cookie or IndexedDB
+    let deviceToken = await this._getDeviceToken();
+
+    if (!deviceToken) {
+      // First time on this device — generate a new device token
+      deviceToken = crypto.randomUUID();
+      console.log('HA-Intercom: Generated new device token');
+    } else {
+      console.log('HA-Intercom: Recovered device token from backup storage');
+    }
+
+    // Persist device token across all storage layers
+    await this._setDeviceToken(deviceToken);
+
+    // Build the composite CLIENT_ID and cache in localStorage
+    const compositeId = `${deviceToken}_${clientId}`;
+    const configEntry = { deviceToken, clientId: compositeId };
+    const fullConfig = { ...(storedConfig && typeof storedConfig === 'object' ? storedConfig : {}), [clientId]: configEntry };
+    localStorage.setItem(storageKey, JSON.stringify(fullConfig));
+
+    return configEntry;
   }
 
   // Create the Mediasoup Transport
@@ -1579,4 +1671,22 @@ class HaIntercomCard extends LitElement {
 
 }
 
-customElements.define('ha-intercom-card', HaIntercomCard);
+const cardName = 'ha-intercom-card';
+
+if (!customElements.get(cardName)) {
+  customElements.define(cardName, MediaMtxWebrtcCard);
+}
+
+// Push to card registry and trigger rebuild
+window.customCards = window.customCards || [];
+if (!window.customCards.some(card => card.type === cardName)) {
+  window.customCards.push({
+    type: cardName,
+    name: "HA Intercom Card",
+    description: "Intercom card for Home Assistant",
+    preview: false
+  });
+}
+
+// Notify Lovelace to re-scan for custom cards
+window.dispatchEvent(new Event("ll-rebuild"));
