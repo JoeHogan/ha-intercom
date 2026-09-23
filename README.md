@@ -87,6 +87,11 @@ with category **Integration**.
     - boolean
     - default: false
     - whether your client supports video (assumes you have a camera)
+- audio
+    - boolean
+    - default: true
+    - whether your client supports audio (assumes you have a microphone). Setting to false disables audio calls for this client
+
 - display
     - default, collapse, single
     - default: default
