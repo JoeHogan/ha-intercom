@@ -92,6 +92,12 @@ const handleConnection = (ws: WebSocket, request) => {
     let allClients = [];
     wss.clients.forEach((ws: any) => {
       if (ws.client) {
+        const hasVideo = Boolean(ws.capabilities?.video);
+        const hasAudio = ws.capabilities ? Boolean(ws.capabilities.audio) : true;
+        // If a client has neither video nor audio capabilities, it should not be made available as a call recipient
+        if (!hasVideo && !hasAudio) {
+          return;
+        }
         allClients.push({ ...ws.capabilities, ...ws.client });
       }
     });
@@ -109,6 +115,12 @@ const handleConnection = (ws: WebSocket, request) => {
     wss.clients.forEach((ws: any) => {
       let entity = entities.find((ent: Entity) => ws.client?.entity_id && ent.entity_id === ws.client.entity_id);
       if (entity) {
+        const hasVideo = Boolean(ws.capabilities?.video);
+        const hasAudio = ws.capabilities ? Boolean(ws.capabilities.audio) : true;
+        if (!hasVideo && !hasAudio) {
+          console.warn(`Target client ${ws.client?.entity_id} has neither video nor audio capabilities. Skipping.`);
+          return;
+        }
         let from = { ...(msg.from || {}), type: entity.type }
         ws.send(JSON.stringify({ ...msg, from }));
       }
@@ -320,7 +332,10 @@ const handleConnection = (ws: WebSocket, request) => {
       }
 
       case 'register': {
-        (ws as any).capabilities = { video: msg.video || false };
+        (ws as any).capabilities = {
+          video: Boolean(msg.video),
+          audio: msg.audio !== false
+        };
         if (msg.name && msg.entity_id) {
           const clientConfig = { name: msg.name, entity_id: msg.entity_id };
           (ws as any).client = clientConfig;

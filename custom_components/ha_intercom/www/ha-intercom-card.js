@@ -15,13 +15,14 @@ class HaIntercomCard extends LitElement {
       console.warn("Optional 'room_prefix' not defined in card config.");
     }
     this.getConfig(config.clientId)
-      .then((storedConfig) => {
+      .then(async (storedConfig) => {
         this.config = config;
         this.CLIENT_ID = storedConfig.clientId;
         this.TARGETS = this.config.targets ? Array.isArray(this.config.targets) ? this.config.targets : [this.config.targets] : [];
         this.display = this.config.display && ['default', 'collapse', 'single'].indexOf(this.config.display.trim().toLowerCase()) > -1 ? this.config.display.trim().toLowerCase() : 'default';
         this.position = this.config.position && ['fixed', 'inline'].indexOf(this.config.position.trim().toLowerCase()) > -1 ? this.config.position.trim().toLowerCase() : 'fixed';
         this.open = this.display === 'collapse' ? false : true;
+        await this.evaluateCapabilities();
         this.connectSignaling();
       })
       .catch((e) => {
@@ -56,7 +57,10 @@ class HaIntercomCard extends LitElement {
       CLIENTS: { type: Object },
       TARGETS: { type: Object },
       remoteStreams: { type: Object },
-      playbackBlocked: { type: Boolean }
+      playbackBlocked: { type: Boolean },
+      canVideo: { type: Boolean },
+      canAudio: { type: Boolean },
+      callError: { type: String }
     };
   }
 
@@ -573,6 +577,52 @@ class HaIntercomCard extends LitElement {
       50% { transform: scale(1.1); }
       100% { transform: scale(1); }
     }
+
+    .call-error-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background-color: var(--error-color, #d32f2f);
+      color: #ffffff;
+      padding: 8px 12px;
+      border-radius: 6px;
+      margin: 8px 0;
+      font-size: 0.85em;
+      line-height: 1.3;
+      gap: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+      z-index: 15;
+    }
+    .call-error-banner ha-icon {
+      --mdc-icon-size: 18px;
+      flex-shrink: 0;
+    }
+    .call-error-banner button.dismiss {
+      background: transparent;
+      border: none;
+      color: #ffffff;
+      cursor: pointer;
+      padding: 2px;
+      display: flex;
+      align-items: center;
+    }
+    .no-capabilities-notice {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      margin: 8px 0;
+      background: rgba(var(--rgb-primary-text, 255, 255, 255), 0.05);
+      border-radius: 6px;
+      color: var(--secondary-text-color, #888);
+      font-size: 0.85em;
+      font-style: italic;
+    }
+    .no-capabilities-notice ha-icon {
+      --mdc-icon-size: 18px;
+      color: var(--disabled-text-color, #999);
+      flex-shrink: 0;
+    }
   `;
 
   constructor() {
@@ -637,6 +687,12 @@ class HaIntercomCard extends LitElement {
     this.playbackBlocked = false;
     this.debounceTime = 500;
     this.stopDelay = 250;
+    this.canVideo = false;
+    this.canAudio = false;
+    this.capabilitiesEvaluated = false;
+    this.callError = null;
+    this._errorTimeout = null;
+    this._deviceChangeListener = null;
   }
 
   _unblockPlayback() {
@@ -724,12 +780,109 @@ class HaIntercomCard extends LitElement {
     this._startPlaybackMonitoring();
     this.bindButtonEvents(this.micButton);
     this.resetVisuals();
+    this._deviceChangeListener = () => {
+      if (this.config) {
+        this.evaluateCapabilities();
+      }
+    };
+    if (typeof navigator !== 'undefined' && navigator.mediaDevices && typeof navigator.mediaDevices.addEventListener === 'function') {
+      navigator.mediaDevices.addEventListener('devicechange', this._deviceChangeListener);
+    }
+    if (this.config) {
+      this.evaluateCapabilities();
+    }
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
     if (this.activationInterval) clearInterval(this.activationInterval);
     this._stopPlaybackMonitoring();
+    if (this._deviceChangeListener && typeof navigator !== 'undefined' && navigator.mediaDevices && typeof navigator.mediaDevices.removeEventListener === 'function') {
+      navigator.mediaDevices.removeEventListener('devicechange', this._deviceChangeListener);
+    }
+    this.clearError();
+  }
+
+  async evaluateCapabilities() {
+    let hasMic = false;
+    let hasCam = false;
+
+    if (typeof navigator !== 'undefined' && navigator.mediaDevices && typeof navigator.mediaDevices.enumerateDevices === 'function') {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        hasMic = devices.some(d => d.kind === 'audioinput');
+        hasCam = devices.some(d => d.kind === 'videoinput');
+      } catch (e) {
+        console.warn("HA-Intercom: Error enumerating media devices:", e);
+      }
+
+      if (typeof navigator.permissions !== 'undefined' && typeof navigator.permissions.query === 'function') {
+        try {
+          const camPerm = await navigator.permissions.query({ name: 'camera' });
+          if (camPerm && camPerm.state === 'denied') hasCam = false;
+        } catch (e) {
+          // 'camera' name not supported in query across all browsers
+        }
+        try {
+          const micPerm = await navigator.permissions.query({ name: 'microphone' });
+          if (micPerm && micPerm.state === 'denied') hasMic = false;
+        } catch (e) {
+          // 'microphone' name not supported in query across all browsers
+        }
+      }
+    } else {
+      console.warn("HA-Intercom: navigator.mediaDevices not supported or inaccessible in this context.");
+    }
+
+    const configuredVideo = Boolean(this.config?.video);
+    const configuredAudio = this.config?.audio !== false;
+
+    const prevCanVideo = this.canVideo;
+    const prevCanAudio = this.canAudio;
+
+    this.canVideo = configuredVideo && hasCam;
+    this.canAudio = configuredAudio && hasMic;
+    this.capabilitiesEvaluated = true;
+
+    // If capabilities changed while connected, re-register so the server and other clients update
+    if (this.socket && this.socket.readyState === WebSocket.OPEN &&
+        (prevCanVideo !== this.canVideo || prevCanAudio !== this.canAudio)) {
+      this.sendRegistration();
+    }
+
+    this.requestUpdate();
+    return { video: this.canVideo, audio: this.canAudio };
+  }
+
+  sendRegistration() {
+    this.sendMessage({
+      ...this.config,
+      type: 'register',
+      video: this.canVideo,
+      audio: this.canAudio
+    });
+  }
+
+  showError(message) {
+    this.callError = message;
+    if (this._errorTimeout) {
+      clearTimeout(this._errorTimeout);
+    }
+    this._errorTimeout = setTimeout(() => {
+      this.callError = null;
+      this._errorTimeout = null;
+      this.requestUpdate();
+    }, 6000);
+    this.requestUpdate();
+  }
+
+  clearError() {
+    if (this._errorTimeout) {
+      clearTimeout(this._errorTimeout);
+      this._errorTimeout = null;
+    }
+    this.callError = null;
+    this.requestUpdate();
   }
 
   async connectSignaling() {
@@ -745,10 +898,13 @@ class HaIntercomCard extends LitElement {
       this.socket.close();
     }, this.connectTimeout);
 
-    this.socket.onopen = () => {
+    this.socket.onopen = async () => {
       clearTimeout(this.connectTimer);
       console.log('HA-Intercom: WebSocket connected');
-      this.sendMessage({ ...this.config, type: 'register' });
+      if (!this.capabilitiesEvaluated) {
+        await this.evaluateCapabilities();
+      }
+      this.sendRegistration();
       this.startPing();
     };
 
@@ -852,38 +1008,111 @@ class HaIntercomCard extends LitElement {
   }
 
   async startClientCall(client, type = 'audio') {
-    this.clearCallEndedScreen();
+    this.clearError();
+
+    if (!this.canAudio && !this.canVideo) {
+      this.showError("Calling unavailable: No microphone or camera detected on this device.");
+      return;
+    }
+
+    if (type === 'video' && (!this.canVideo || !client.video)) {
+      type = 'audio';
+    }
+
+    if (type === 'audio' && (!this.canAudio || client.audio === false)) {
+      this.showError("Audio call unavailable: Microphone or recipient audio is not supported.");
+      return;
+    }
+
     let targets = [{ ...client, type }];
     return this.startCall(targets, type);
   }
 
   async startCall(targets, type = 'audio') {
+    this.clearCallEndedScreen();
+    this.clearError();
+
+    if (!this.canAudio && !this.canVideo) {
+      this.showError("Calling unavailable: No microphone or camera detected on this device.");
+      return;
+    }
+
+    if (type === 'video' && !this.canVideo) {
+      if (this.canAudio) {
+        type = 'audio';
+      } else {
+        this.showError("Video calling unavailable: No camera available on this device.");
+        return;
+      }
+    }
+
+    if (type === 'audio' && !this.canAudio) {
+      this.showError("Audio call unavailable: Microphone is not supported or permitted on this device.");
+      return;
+    }
+
+    let stream = null;
+    let actualType = type;
+
+    if (type === 'video') {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: this.audioConfig,
+          video: this.videoConfig
+        });
+      } catch (err) {
+        console.warn(`HA-Intercom: Video capture failed (${err?.name || err}), falling back to audio:`, err);
+        if (!this.canAudio) {
+          this.outgoingMedia = null;
+          this.clearMediaElements();
+          this.showError("Video capture failed and microphone is not available on this device.");
+          return;
+        }
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: this.audioConfig });
+          actualType = 'audio';
+        } catch (audioErr) {
+          console.error(`HA-Intercom: Audio fallback also failed:`, audioErr);
+          this.outgoingMedia = null;
+          this.clearMediaElements();
+          this.showError("Unable to access camera or microphone. Call could not be started.");
+          return;
+        }
+      }
+    } else {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: this.audioConfig });
+      } catch (audioErr) {
+        console.error(`HA-Intercom: Audio capture failed:`, audioErr);
+        this.outgoingMedia = null;
+        this.clearMediaElements();
+        this.showError("Unable to access microphone. Call could not be started.");
+        return;
+      }
+    }
+
+    if (!stream) {
+      this.showError("No media stream available. Call could not be started.");
+      return;
+    }
+
     this.toggleMenu(false);
     const prefix = this.config?.room_prefix || 'ha-room';
     this.roomId = `${prefix}-${Math.random().toString(36).substring(7)}`;
     this.roomState = 'in-call';
-    this.mediaType = type;
+    this.mediaType = actualType;
     this.callStartTime = Date.now();
+    this.localStream = stream;
 
-    try {
-      this.localStream = await navigator.mediaDevices.getUserMedia({ audio: this.audioConfig, video: type === 'video' ? this.videoConfig : false });
+    if (actualType === 'audio') {
+      targets = targets.map(target => ({ ...target, type: 'audio' }));
+      this.outgoingVideoElement.srcObject = null;
+    } else {
       this.outgoingVideoElement.srcObject = this.localStream;
       this._safePlay(this.outgoingVideoElement);
-      this.outgoingMedia = { type, to: targets[0] };
-    } catch (err) {
-      console.warn(`Failed to get one or more media devices: ${err}`);
-      try {
-        this.localStream = await navigator.mediaDevices.getUserMedia({ audio: this.audioConfig });
-        this.mediaType = 'audio'; // correct mediaType so server reports the right type
-        this.outgoingMedia = { type: 'audio', to: targets[0] };
-        targets = targets.map(target => ({ ...target, type: 'audio' })); //force target to be audio since video failed
-      } catch (audioErr) {
-        this.outgoingMedia = null;
-        this.clearMediaElements();
-        console.error(`No media devices available or permissions denied: ${audioErr}`);
-        throw audioErr;
-      }
     }
+
+    this.outgoingMedia = { type: actualType, to: targets[0] };
 
     this.sendMessage({
       type: 'create',
@@ -902,44 +1131,95 @@ class HaIntercomCard extends LitElement {
   }
 
   async joinCall(roomId, type = 'audio') {
+    this.clearError();
+
+    if (!this.canAudio && !this.canVideo) {
+      this.showError("Unable to answer: No microphone or camera detected on this device.");
+      return;
+    }
+
+    if (type === 'video' && !this.canVideo) {
+      if (this.canAudio) {
+        type = 'audio';
+      } else {
+        this.showError("Unable to answer: Video requested but no camera available on this device.");
+        return;
+      }
+    }
+
+    if (type === 'audio' && !this.canAudio) {
+      this.showError("Unable to answer: Microphone is not supported or permitted on this device.");
+      return;
+    }
+
+    let stream = null;
+    let actualType = type;
+
+    if (type === 'video') {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: this.audioConfig,
+          video: this.videoConfig
+        });
+      } catch (err) {
+        console.warn(`HA-Intercom: Video capture failed on join (${err?.name || err}), falling back to audio:`, err);
+        if (!this.canAudio) {
+          this.showError("Video capture failed on answer and microphone is not available on this device.");
+          return;
+        }
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: this.audioConfig });
+          actualType = 'audio';
+        } catch (audioErr) {
+          console.error(`HA-Intercom: Audio fallback on join also failed:`, audioErr);
+          this.showError("Unable to access camera or microphone to answer call.");
+          return;
+        }
+      }
+    } else {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: this.audioConfig });
+      } catch (audioErr) {
+        console.error(`HA-Intercom: Audio capture failed on join:`, audioErr);
+        this.showError("Unable to access microphone to answer call.");
+        return;
+      }
+    }
+
+    if (!stream) {
+      this.showError("No media stream available to answer call.");
+      return;
+    }
+
     // If already connected (previewing), just need to start producing.
     let isUpgrade = false;
     if (this.roomId === roomId && this.device && this.device.loaded) {
       isUpgrade = true;
     }
-    this.mediaType = type;
+    this.mediaType = actualType;
     this.roomId = roomId;
     this.roomState = 'in-call';
     this.callStartTime = Date.now();
-    try {
-      this.localStream = await navigator.mediaDevices.getUserMedia({ audio: this.audioConfig, video: type === 'video' ? this.videoConfig : false });
+    this.localStream = stream;
+
+    if (actualType === 'video') {
       this.outgoingVideoElement.srcObject = this.localStream;
       this._safePlay(this.outgoingVideoElement);
-      this.outgoingMedia = { type, to: this.incomingMedia?.from };
-    } catch (err) {
-      console.warn(`Failed to get one or more media devices: ${err}`);
-      try {
-        // fallback to just Audio
-        this.localStream = await navigator.mediaDevices.getUserMedia({ audio: this.audioConfig });
-        this.mediaType = 'audio'; // correct mediaType so server reports the right type
-        this.outgoingMedia = { type: 'audio', to: this.incomingMedia?.from };
-      } catch (audioErr) {
-        console.error(`No media devices available or permissions denied: ${audioErr}`);
-        throw audioErr;
-      }
+    } else {
+      this.outgoingVideoElement.srcObject = null;
     }
+
+    this.outgoingMedia = { type: actualType, to: this.incomingMedia?.from };
 
     if (!isUpgrade) {
       this.sendMessage({
         type: 'join',
         roomId,
-        mediaType: type
+        mediaType: actualType
       });
     } else {
       // if already joined, just start producing
-
       await this.produceMedia();
-
     }
   }
 
@@ -1414,12 +1694,29 @@ class HaIntercomCard extends LitElement {
       `;
     }
     if (this.display === 'single') {
+      if (!this.canAudio) {
+        return html`
+          <div class="no-capabilities-notice">
+            <ha-icon icon="mdi:microphone-off"></ha-icon>
+            <span>Microphone not available on this device.</span>
+          </div>
+        `;
+      }
       return html`
         ${this.micButton}
       `;
     }
     return html`
       <div id="media-container" class="${this.display} ${this.position} ${this.open ? 'open' : 'closed'}">
+        ${this.callError ? html`
+          <div class="call-error-banner">
+            <ha-icon icon="mdi:alert-circle"></ha-icon>
+            <span>${this.callError}</span>
+            <button type="button" class="dismiss" title="Dismiss" @click="${() => this.clearError()}">
+              <ha-icon icon="mdi:close"></ha-icon>
+            </button>
+          </div>
+        ` : null}
         <div class="toggle-menu">
           <button type="button" class="link" @click="${() => this.toggleConfig(true)}">
             ${this.NAME}
@@ -1430,32 +1727,44 @@ class HaIntercomCard extends LitElement {
           </button>
         </div>
         <div class="client-list">
+          ${!this.canVideo && !this.canAudio ? html`
+            <div class="no-capabilities-notice">
+              <ha-icon icon="mdi:phone-off"></ha-icon>
+              <span>Calling unavailable: No microphone or camera detected.</span>
+            </div>
+          ` : null}
           ${this.CLIENTS.map(client => {
-      return html`
+            const canVideoCall = this.canVideo && Boolean(client.video);
+            const canAudioCall = this.canAudio && (client.audio !== false);
+            if (!canVideoCall && !canAudioCall) return null;
+            return html`
               <div class="list-item client">
                 <div>${client.name || client.clientId || 'unknown'}</div>
-                ${client.video ? html`<button type="button" class="btn video" @click="${this.startClientCall.bind(this, client, 'video')}">
+                ${canVideoCall ? html`<button type="button" class="btn video" title="Start video call" @click="${this.startClientCall.bind(this, client, 'video')}">
                   <ha-icon icon="mdi:video"></ha-icon>
                 </button>` : null}
-                <button type="button" class="btn audio" @click="${this.startClientCall.bind(this, client, 'audio')}">
+                ${canAudioCall ? html`<button type="button" class="btn audio" title="Start audio call" @click="${this.startClientCall.bind(this, client, 'audio')}">
                   <ha-icon icon="mdi:microphone"></ha-icon>
-                </button>
+                </button>` : null}
               </div>
-            `
-    })}
+            `;
+          })}
           ${this.TARGETS.map(target => {
-      return html`
+            const canVideoCall = this.canVideo && Boolean(target.video);
+            const canAudioCall = this.canAudio;
+            if (!canVideoCall && !canAudioCall) return null;
+            return html`
               <div class="list-item target">
                 <div>${target.name || 'unknown'}</div>
-                ${target.video ? html`<button type="button" class="btn video" @click="${this.startCall.bind(this, target.entities, 'video')}">
+                ${canVideoCall ? html`<button type="button" class="btn video" title="Start video call" @click="${this.startCall.bind(this, target.entities, 'video')}">
                   <ha-icon icon="mdi:video"></ha-icon>
                 </button>` : null}
-                <button type="button" class="btn audio" @click="${this.startCall.bind(this, target.entities, 'audio')}">
+                ${canAudioCall ? html`<button type="button" class="btn audio" title="Start audio call" @click="${this.startCall.bind(this, target.entities, 'audio')}">
                   <ha-icon icon="mdi:microphone"></ha-icon>
-                </button>
+                </button>` : null}
               </div>
-            `
-    })}
+            `;
+          })}
         </div>
         <div style="display: none" class="send-message-container ${this.incomingMedia ? 'inactive' : 'active'}">
           ${this.config.name
@@ -1484,12 +1793,18 @@ class HaIntercomCard extends LitElement {
               </button>
               ${this.incomingMedia && !this.outgoingMedia
         ? html`
-                  <button type="button" class="btn audio" @click="${this.joinCall.bind(this, this.incomingMedia.roomId, 'video')}">
-                      <ha-icon icon="mdi:video"></ha-icon>
-                    </button>
-                    <button type="button" class="btn audio" @click="${this.joinCall.bind(this, this.incomingMedia.roomId, 'audio')}">
-                      <ha-icon icon="mdi:microphone"></ha-icon>
-                    </button>
+                  ${this.canVideo && this.incomingMedia.from?.type === 'video'
+                    ? html`<button type="button" class="btn video" title="Answer with video" @click="${this.joinCall.bind(this, this.incomingMedia.roomId, 'video')}">
+                        <ha-icon icon="mdi:video"></ha-icon>
+                      </button>`
+                    : null
+                  }
+                  ${this.canAudio
+                    ? html`<button type="button" class="btn audio" title="Answer with audio" @click="${this.joinCall.bind(this, this.incomingMedia.roomId, 'audio')}">
+                        <ha-icon icon="mdi:microphone"></ha-icon>
+                      </button>`
+                    : null
+                  }
                 `
         : null
       }
@@ -1501,12 +1816,16 @@ class HaIntercomCard extends LitElement {
                 ${this.callDurationStr ? html`<div class="duration">Call Duration: ${this.callDurationStr}</div>` : null}
                 <div class="footer">Would you like to call back?</div>
                 <div class="actions-center">
-                  <button type="button" class="btn audio" @click="${() => { this.startClientCall(this.lastCaller, 'audio') }}">
-                    <ha-icon icon="mdi:microphone"></ha-icon>
-                  </button>
-                  <button type="button" class="btn video" @click="${() => { this.startClientCall(this.lastCaller, 'video') }}">
-                    <ha-icon icon="mdi:video"></ha-icon>
-                  </button>
+                  ${this.canAudio && (this.lastCaller?.audio !== false) ? html`
+                    <button type="button" class="btn audio" title="Call back (audio)" @click="${() => { this.startClientCall(this.lastCaller, 'audio') }}">
+                      <ha-icon icon="mdi:microphone"></ha-icon>
+                    </button>
+                  ` : null}
+                  ${this.canVideo && Boolean(this.lastCaller?.video) ? html`
+                    <button type="button" class="btn video" title="Call back (video)" @click="${() => { this.startClientCall(this.lastCaller, 'video') }}">
+                      <ha-icon icon="mdi:video"></ha-icon>
+                    </button>
+                  ` : null}
                 </div>
               </div>
             ` : html`
@@ -1591,10 +1910,16 @@ class HaIntercomCard extends LitElement {
       console.error(`HA-Intercom: You must define at least one target entity.`);
       return;
     }
+    if (!this.canAudio) {
+      this.showError("Audio call unavailable: Microphone is not supported or permitted on this device.");
+      return;
+    }
     this.setIndicator();
     await this.startCall(target.entities, 'audio');
     if (this.localStream) {
       this.setIndicator(true);
+    } else {
+      this.resetVisuals();
     }
   }
 
