@@ -846,7 +846,7 @@ class HaIntercomCard extends LitElement {
 
     // If capabilities changed while connected, re-register so the server and other clients update
     if (this.socket && this.socket.readyState === WebSocket.OPEN &&
-        (prevCanVideo !== this.canVideo || prevCanAudio !== this.canAudio)) {
+      (prevCanVideo !== this.canVideo || prevCanAudio !== this.canAudio)) {
       this.sendRegistration();
     }
 
@@ -1105,7 +1105,6 @@ class HaIntercomCard extends LitElement {
     this.localStream = stream;
 
     if (actualType === 'audio') {
-      targets = targets.map(target => ({ ...target, type: 'audio' }));
       this.outgoingVideoElement.srcObject = null;
     } else {
       this.outgoingVideoElement.srcObject = this.localStream;
@@ -1734,10 +1733,10 @@ class HaIntercomCard extends LitElement {
             </div>
           ` : null}
           ${this.CLIENTS.map(client => {
-            const canVideoCall = this.canVideo && Boolean(client.video);
-            const canAudioCall = this.canAudio && (client.audio !== false);
-            if (!canVideoCall && !canAudioCall) return null;
-            return html`
+      const canVideoCall = this.canVideo && Boolean(client.video);
+      const canAudioCall = this.canAudio && (client.audio !== false);
+      if (!canVideoCall && !canAudioCall) return null;
+      return html`
               <div class="list-item client">
                 <div>${client.name || client.clientId || 'unknown'}</div>
                 ${canVideoCall ? html`<button type="button" class="btn video" title="Start video call" @click="${this.startClientCall.bind(this, client, 'video')}">
@@ -1748,12 +1747,12 @@ class HaIntercomCard extends LitElement {
                 </button>` : null}
               </div>
             `;
-          })}
+    })}
           ${this.TARGETS.map(target => {
-            const canVideoCall = this.canVideo && Boolean(target.video);
-            const canAudioCall = this.canAudio;
-            if (!canVideoCall && !canAudioCall) return null;
-            return html`
+      const canVideoCall = this.canVideo && Boolean(target.video);
+      const canAudioCall = this.canAudio;
+      if (!canVideoCall && !canAudioCall) return null;
+      return html`
               <div class="list-item target">
                 <div>${target.name || 'unknown'}</div>
                 ${canVideoCall ? html`<button type="button" class="btn video" title="Start video call" @click="${this.startCall.bind(this, target.entities, 'video')}">
@@ -1764,7 +1763,7 @@ class HaIntercomCard extends LitElement {
                 </button>` : null}
               </div>
             `;
-          })}
+    })}
         </div>
         <div style="display: none" class="send-message-container ${this.incomingMedia ? 'inactive' : 'active'}">
           ${this.config.name
@@ -1794,17 +1793,17 @@ class HaIntercomCard extends LitElement {
               ${this.incomingMedia && !this.outgoingMedia
         ? html`
                   ${this.canVideo && this.incomingMedia.from?.type === 'video'
-                    ? html`<button type="button" class="btn video" title="Answer with video" @click="${this.joinCall.bind(this, this.incomingMedia.roomId, 'video')}">
+            ? html`<button type="button" class="btn video" title="Answer with video" @click="${this.joinCall.bind(this, this.incomingMedia.roomId, 'video')}">
                         <ha-icon icon="mdi:video"></ha-icon>
                       </button>`
-                    : null
-                  }
+            : null
+          }
                   ${this.canAudio
-                    ? html`<button type="button" class="btn audio" title="Answer with audio" @click="${this.joinCall.bind(this, this.incomingMedia.roomId, 'audio')}">
+            ? html`<button type="button" class="btn audio" title="Answer with audio" @click="${this.joinCall.bind(this, this.incomingMedia.roomId, 'audio')}">
                         <ha-icon icon="mdi:microphone"></ha-icon>
                       </button>`
-                    : null
-                  }
+            : null
+          }
                 `
         : null
       }
